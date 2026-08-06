@@ -80,9 +80,14 @@ export const RestoProvider = ({ children }) => {
       };
     });
 
+    const foundTable = tables.find(
+      (t) => t.id === dbOrder.table_id || t.number === parseInt(String(dbOrder.table_id).replace(/\D/g, ""), 10)
+    );
+    const displayTableId = foundTable ? `T${foundTable.number}` : dbOrder.table_id || "T1";
+
     return {
       id: dbOrder.id,
-      tableId: dbOrder.table_id || "T1",
+      tableId: displayTableId,
       customerName: "Customer",
       customerPhone: "",
       status: dbOrder.order_status || "New",
@@ -115,7 +120,6 @@ export const RestoProvider = ({ children }) => {
       if (dbCategories && dbCategories.length > 0) {
         setCategories(dbCategories.map(mapDbCategory));
       } else {
-        // Seed initial categories if DB is empty
         for (const cat of INITIAL_CATEGORIES) {
           await createMenuCategory(cat.name);
         }
@@ -128,7 +132,6 @@ export const RestoProvider = ({ children }) => {
       if (dbItems && dbItems.length > 0) {
         setMenuItems(dbItems.map(mapDbMenuItem));
       } else {
-        // Seed initial items if DB is empty
         for (const item of INITIAL_MENU_ITEMS) {
           await createMenuItem(item);
         }
@@ -138,26 +141,53 @@ export const RestoProvider = ({ children }) => {
 
       // 3. Restaurant Tables
       const dbTables = await fetchRestaurantTables();
+      let loadedTables = INITIAL_TABLES;
       if (dbTables && dbTables.length > 0) {
-        setTables(dbTables.map(mapDbTable));
+        loadedTables = dbTables.map(mapDbTable);
+        setTables(loadedTables);
       } else {
-        // Seed 20 tables if empty
         for (const tbl of INITIAL_TABLES) {
           await upsertRestaurantTable(tbl);
         }
         const fresh = await fetchRestaurantTables();
-        if (fresh?.length > 0) setTables(fresh.map(mapDbTable));
+        if (fresh?.length > 0) {
+          loadedTables = fresh.map(mapDbTable);
+          setTables(loadedTables);
+        }
       }
 
-      // 4. Orders
+      // 4. Orders & Table Status Sync
       const dbOrders = await fetchOrders();
       if (dbOrders && dbOrders.length > 0) {
         const activeList = dbOrders
           .filter((o) => o.order_status !== "Completed" && o.order_status !== "Cancelled" && o.payment_status !== "Paid")
           .map(mapDbOrder);
-        if (activeList.length > 0) {
-          setActiveOrders(activeList);
-        }
+
+        setActiveOrders(activeList);
+
+        // Reflect active orders onto Table Map grid
+        setTables((prevTables) =>
+          prevTables.map((t) => {
+            const matchingOrder = activeList.find(
+              (o) =>
+                o.tableId === `T${t.number}` ||
+                o.tableId === t.id ||
+                parseInt(String(o.tableId).replace(/\D/g, ""), 10) === t.number
+            );
+            if (matchingOrder) {
+              return {
+                ...t,
+                status: "occupied",
+                guests: t.guests > 0 ? t.guests : 2,
+                seatedTime: t.seatedTime || new Date(matchingOrder.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+                orderId: matchingOrder.id,
+                activeOrderTotal: matchingOrder.totalAmount,
+                customerName: matchingOrder.customerName || "Customer",
+              };
+            }
+            return t;
+          })
+        );
       }
 
       setIsDbLoaded(true);
@@ -280,9 +310,10 @@ export const RestoProvider = ({ children }) => {
   };
 
   const updateTableStatus = async (tableId, newStatus) => {
+    const tNum = parseInt(String(tableId).replace(/\D/g, ""), 10);
     setTables((prev) =>
       prev.map((t) => {
-        if (t.id !== tableId) return t;
+        if (t.id !== tableId && t.number !== tNum) return t;
         const updated = { ...t, status: newStatus };
         if (newStatus === "vacant" || newStatus === "needs_cleaning") {
           updated.guests = 0;
@@ -295,7 +326,10 @@ export const RestoProvider = ({ children }) => {
         return updated;
       })
     );
-    await updateRestaurantTableStatus(tableId, newStatus);
+
+    const foundTable = tables.find((t) => t.id === tableId || t.number === tNum);
+    const dbTableId = foundTable ? foundTable.id : tableId;
+    await updateRestaurantTableStatus(dbTableId, newStatus);
   };
 
   const broadcast = (payload) => {
@@ -332,7 +366,7 @@ export const RestoProvider = ({ children }) => {
     setActiveOrders((prev) => [newOrder, ...prev]);
     setTables((prev) =>
       prev.map((t) => {
-        if (t.id !== tableId) return t;
+        if (t.id !== tableId && t.id !== dbTableId && t.number !== tNum) return t;
         return {
           ...t,
           status: "occupied",
@@ -344,7 +378,7 @@ export const RestoProvider = ({ children }) => {
       })
     );
 
-    broadcast({ type: "NEW_ORDER", order: newOrder, tableId });
+    broadcast({ type: "NEW_ORDER", order: newOrder, tableId: displayTableId });
     return newOrderId;
   };
 
