@@ -215,7 +215,7 @@ export const CustomerAppContainer = () => {
               >
                 {tables.map((t) => (
                   <option key={t.id} value={t.id}>
-                    Table {t.number} ({t.id})
+                    Table {t.number}
                   </option>
                 ))}
               </select>

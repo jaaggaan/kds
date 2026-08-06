@@ -185,7 +185,7 @@ export const BillingStation = () => {
                   setSelectedTableForBilling(t.id);
                 }}
               >
-                <span className="pill-table-id">{t.id}</span>
+                <span className="pill-table-id">T{t.number || parseInt(String(t.id).replace(/\D/g, ""), 10) || t.id}</span>
                 <span className="pill-status">
                   {hasOrder ? `₹${t.activeOrderTotal}` : "Vacant"}
                 </span>

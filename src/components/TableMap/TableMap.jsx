@@ -88,7 +88,7 @@ export const TableMap = () => {
             onClick={() => setSelectedTableId(table.id)}
           >
             <div className="table-card-header">
-              <span className="table-number">{table.id}</span>
+              <span className="table-number">T{table.number || parseInt(String(table.id).replace(/\D/g, ""), 10) || table.id}</span>
               <span className={`table-status-tag tag-${table.status}`}>
                 {getStatusBadgeLabel(table.status)}
               </span>
