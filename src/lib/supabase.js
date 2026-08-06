@@ -10,6 +10,11 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   },
 });
 
+// UUID validator helper
+const isUUID = (str) =>
+  typeof str === "string" &&
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
+
 // Logging helper
 const logApi = (action, details, error = null) => {
   if (error) {
@@ -54,6 +59,7 @@ export const createMenuCategory = async (categoryName) => {
 
 export const updateMenuCategory = async (id, categoryName) => {
   try {
+    if (!isUUID(id)) return null;
     const { data, error } = await supabase
       .from("menu_categories")
       .update({ category_name: categoryName })
@@ -71,6 +77,7 @@ export const updateMenuCategory = async (id, categoryName) => {
 
 export const deleteMenuCategory = async (id) => {
   try {
+    if (!isUUID(id)) return false;
     const { error } = await supabase
       .from("menu_categories")
       .delete()
@@ -105,8 +112,9 @@ export const fetchMenuItems = async () => {
 
 export const createMenuItem = async (item) => {
   try {
+    const catId = item.categoryId || item.category_id;
     const payload = {
-      category_id: item.categoryId || item.category_id,
+      category_id: isUUID(catId) ? catId : null,
       item_name: item.name || item.item_name,
       description: item.description || "",
       price: parseFloat(item.price) || 0,
@@ -131,8 +139,10 @@ export const createMenuItem = async (item) => {
 
 export const updateMenuItem = async (id, item) => {
   try {
+    if (!isUUID(id)) return null;
     const payload = {};
-    if (item.categoryId || item.category_id) payload.category_id = item.categoryId || item.category_id;
+    const catId = item.categoryId || item.category_id;
+    if (catId && isUUID(catId)) payload.category_id = catId;
     if (item.name || item.item_name) payload.item_name = item.name || item.item_name;
     if (item.description !== undefined) payload.description = item.description;
     if (item.price !== undefined) payload.price = parseFloat(item.price);
@@ -159,6 +169,7 @@ export const updateMenuItem = async (id, item) => {
 
 export const deleteMenuItem = async (id) => {
   try {
+    if (!isUUID(id)) return false;
     const { error } = await supabase
       .from("menu_items")
       .delete()
@@ -193,11 +204,15 @@ export const fetchRestaurantTables = async () => {
 
 export const upsertRestaurantTable = async (table) => {
   try {
+    const num = parseInt(table.number || table.table_number, 10) || 1;
     const payload = {
-      id: table.id || `T${table.number || table.table_number}`,
-      table_number: parseInt(table.number || table.table_number, 10) || 1,
+      table_number: num,
       status: table.status || "vacant"
     };
+
+    if (isUUID(table.id)) {
+      payload.id = table.id;
+    }
 
     const { data, error } = await supabase
       .from("restaurant_tables")
@@ -215,6 +230,7 @@ export const upsertRestaurantTable = async (table) => {
 
 export const updateRestaurantTableStatus = async (tableId, status) => {
   try {
+    if (!isUUID(tableId)) return null;
     const { data, error } = await supabase
       .from("restaurant_tables")
       .update({ status })
@@ -251,7 +267,7 @@ export const fetchOrders = async () => {
 export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => {
   try {
     const orderPayload = {
-      table_id: String(tableId),
+      table_id: isUUID(tableId) ? tableId : null,
       order_status: "New",
       total: parseFloat(total) || 0,
       discount: 0,
@@ -270,7 +286,7 @@ export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => 
     if (newOrder && items && items.length > 0) {
       const lineItemsPayload = items.map((item) => ({
         order_id: newOrder.id,
-        menu_item_id: item.menuItemId || item.id || null,
+        menu_item_id: isUUID(item.menuItemId || item.id) ? item.menuItemId || item.id : null,
         price: parseFloat(item.price) || 0,
         quantity: parseInt(item.qty || item.quantity, 10) || 1,
         notes: item.notes || (item.customizations ? item.customizations.join(", ") : "") || notes || ""
@@ -285,8 +301,10 @@ export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => 
       }
     }
 
-    // Update table status to occupied
-    await updateRestaurantTableStatus(tableId, "occupied");
+    // Update table status to occupied if tableId is valid UUID
+    if (isUUID(tableId)) {
+      await updateRestaurantTableStatus(tableId, "occupied");
+    }
 
     logApi("createOrderInDb", newOrder);
     return newOrder;
@@ -298,6 +316,7 @@ export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => 
 
 export const updateOrderStatusInDb = async (orderId, orderStatus) => {
   try {
+    if (!isUUID(orderId)) return null;
     const { data, error } = await supabase
       .from("orders")
       .update({ order_status: orderStatus })
@@ -315,6 +334,7 @@ export const updateOrderStatusInDb = async (orderId, orderStatus) => {
 
 export const payOrderInDb = async (orderId, { total, discount = 0, tax = 0 }) => {
   try {
+    if (!isUUID(orderId)) return null;
     const { data, error } = await supabase
       .from("orders")
       .update({
@@ -341,7 +361,7 @@ export const payOrderInDb = async (orderId, { total, discount = 0, tax = 0 }) =>
 export const createFeedbackInDb = async ({ orderId, rating, comments }) => {
   try {
     const payload = {
-      order_id: orderId || null,
+      order_id: isUUID(orderId) ? orderId : null,
       rating: parseInt(rating, 10) || 5,
       comments: comments || ""
     };

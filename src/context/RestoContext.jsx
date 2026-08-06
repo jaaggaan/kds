@@ -68,14 +68,17 @@ export const RestoProvider = ({ children }) => {
 
   // Helper to map DB orders to frontend format
   const mapDbOrder = (dbOrder) => {
-    const items = (dbOrder.order_items || []).map((i) => ({
-      id: i.id,
-      menuItemId: i.menu_item_id,
-      name: i.menu_items?.item_name || `Item ${i.menu_item_id || ""}`,
-      price: parseFloat(i.price) || 0,
-      qty: parseInt(i.quantity, 10) || 1,
-      customizations: i.notes ? [i.notes] : []
-    }));
+    const items = (dbOrder.order_items || []).map((i) => {
+      const foundMenuItem = menuItems.find((m) => String(m.id) === String(i.menu_item_id));
+      return {
+        id: i.id,
+        menuItemId: i.menu_item_id,
+        name: i.menu_items?.item_name || foundMenuItem?.name || "Delicious Item",
+        price: parseFloat(i.price) || 0,
+        qty: parseInt(i.quantity, 10) || 1,
+        customizations: i.notes ? [i.notes] : []
+      };
+    });
 
     return {
       id: dbOrder.id,
