@@ -307,13 +307,18 @@ export const RestoProvider = ({ children }) => {
   const createOrder = async ({ tableId, items, guests = 2, notes = "" }) => {
     const totalAmount = items.reduce((s, i) => s + i.price * i.qty, 0);
 
+    const tNum = parseInt(String(tableId).replace(/\D/g, ""), 10);
+    const foundTable = tables.find((t) => t.id === tableId || t.number === tNum);
+    const dbTableId = foundTable ? foundTable.id : tableId;
+    const displayTableId = foundTable ? `T${foundTable.number}` : tableId;
+
     // Save to Supabase DB
-    const dbOrder = await createOrderInDb({ tableId, items, total: totalAmount, notes });
+    const dbOrder = await createOrderInDb({ tableId: dbTableId, items, total: totalAmount, notes });
 
     const newOrderId = dbOrder?.id || `ORD-${Math.floor(100 + Math.random() * 900)}`;
     const newOrder = {
       id: newOrderId,
-      tableId,
+      tableId: displayTableId,
       customerName: "Customer",
       customerPhone: "",
       status: "New",
