@@ -111,6 +111,14 @@ export const Navbar = () => {
         </button>
 
         <button
+          className={`nav-tab ${activeTab === "captive_portal" ? "active" : ""}`}
+          onClick={() => setActiveTab("captive_portal")}
+        >
+          <Smartphone size={15} />
+          <span>Captive Portal</span>
+        </button>
+
+        <button
           className={`nav-tab ${activeTab === "billing" ? "active" : ""}`}
           onClick={() => setActiveTab("billing")}
         >

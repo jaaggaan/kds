@@ -11,6 +11,7 @@ import { RevenueAnalytics } from "./components/Analytics/RevenueAnalytics";
 import { StaffManagement } from "./components/Dashboard/StaffManagement";
 import { QRCodeGenerator } from "./components/Tools/QRCodeGenerator";
 import { ESP32FirmwareView } from "./components/Tools/ESP32FirmwareView";
+import { CaptivePortalView } from "./components/CaptivePortal/CaptivePortalView";
 import "./App.css";
 
 const MainContent = () => {
@@ -22,6 +23,7 @@ const MainContent = () => {
       {activeTab === "live_orders" && <LiveOrders />}
       {activeTab === "kds" && <KitchenDisplaySystem />}
       {activeTab === "customer_app" && <CustomerAppContainer />}
+      {activeTab === "captive_portal" && <CaptivePortalView />}
       {activeTab === "billing" && <BillingStation />}
       {activeTab === "menu_manager" && <MenuManager />}
       {activeTab === "analytics" && <RevenueAnalytics />}
