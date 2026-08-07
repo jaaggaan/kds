@@ -27,14 +27,15 @@ export const TableDetailModal = ({ table, onClose, onOpenNewOrder }) => {
   const [selectedStatus, setSelectedStatus] = useState(table.status);
 
   // Extract table number for universal matching (T1 to T20)
-  const tableNum = table.number || parseInt(String(table.id).replace(/\D/g, ""), 10);
+  const tableNum = table.number;
 
   // Find active order for this table across all table ID formats
   const activeOrder = activeOrders.find(
     (o) =>
       (o.tableId === table.id ||
        o.tableId === `T${tableNum}` ||
-       parseInt(String(o.tableId).replace(/\D/g, ""), 10) === tableNum) &&
+       (typeof o.tableId === "string" && o.tableId.startsWith("T") && parseInt(o.tableId.replace("T", ""), 10) === tableNum) ||
+       o.tableId === tableNum) &&
       o.status !== "Cancelled"
   );
 

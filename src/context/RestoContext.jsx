@@ -201,7 +201,7 @@ export const RestoProvider = ({ children }) => {
               (o) =>
                 o.tableId === `T${t.number}` ||
                 o.tableId === t.id ||
-                parseInt(String(o.tableId).replace(/\D/g, ""), 10) === t.number
+                (typeof o.tableId === "string" && o.tableId.startsWith("T") && parseInt(o.tableId.replace("T", ""), 10) === t.number)
             );
             if (matchingOrder) {
               return {
@@ -244,15 +244,13 @@ export const RestoProvider = ({ children }) => {
     const { type } = payload;
 
     if (type === "TABLE_CHECKIN" || type === "TABLE_ASSIGNED") {
-      const tId = String(payload.tableId || "");
-      const tNum = parseInt(tId.replace(/\D/g, ""), 10);
+      const targetTable = resolveTable(payload.tableId, tables);
       const custPhone = payload.customerPhone || "";
       const custName = payload.customerName || "Guest";
-      const cleanCustPhone = custPhone.replace(/\D/g, "");
 
       setTables((prev) =>
         prev.map((t) => {
-          const match = t.id === tId || t.number === tNum || parseInt(String(t.id).replace(/\D/g, ""), 10) === tNum;
+          const match = targetTable ? t.id === targetTable.id : t.id === payload.tableId;
           if (match) {
             updateRestaurantTableStatus(t.id, "occupied");
             return {
@@ -264,8 +262,7 @@ export const RestoProvider = ({ children }) => {
               customerPhone: custPhone,
             };
           }
-          const cleanTablePhone = (t.customerPhone || "").replace(/\D/g, "");
-          if (cleanCustPhone && cleanTablePhone === cleanCustPhone) {
+          if (custPhone && t.customerPhone === custPhone) {
             updateRestaurantTableStatus(t.id, "vacant");
             return {
               ...t,
@@ -284,16 +281,13 @@ export const RestoProvider = ({ children }) => {
     }
 
     if (type === "TABLE_VACATE") {
-      const tId = String(payload.tableId || "");
-      const tNum = parseInt(tId.replace(/\D/g, ""), 10);
-      const cleanCustPhone = (payload.customerPhone || "").replace(/\D/g, "");
+      const targetTable = resolveTable(payload.tableId, tables);
 
       setTables((prev) =>
         prev.map((t) => {
-          const matchTable = t.id === tId || t.number === tNum || parseInt(String(t.id).replace(/\D/g, ""), 10) === tNum;
-          const matchPhone = cleanCustPhone && (t.customerPhone || "").replace(/\D/g, "") === cleanCustPhone;
+          const matchTable = targetTable ? t.id === targetTable.id : t.id === payload.tableId;
 
-          if (matchTable || matchPhone) {
+          if (matchTable) {
             updateRestaurantTableStatus(t.id, "vacant");
             return {
               ...t,
@@ -310,7 +304,7 @@ export const RestoProvider = ({ children }) => {
         })
       );
     }
-  }, []);
+  }, [resolveTable, tables]);
 
   // Sync localStorage cross-port events
   useEffect(() => {
@@ -339,10 +333,12 @@ export const RestoProvider = ({ children }) => {
   };
 
   const updateTableStatus = async (tableId, newStatus) => {
-    const tNum = parseInt(String(tableId).replace(/\D/g, ""), 10);
+    const foundTable = resolveTable(tableId, tables);
+    const targetId = foundTable ? foundTable.id : tableId;
+
     setTables((prev) =>
       prev.map((t) => {
-        if (t.id !== tableId && t.number !== tNum) return t;
+        if (t.id !== targetId) return t;
         const updated = { ...t, status: newStatus };
         if (newStatus === "vacant" || newStatus === "needs_cleaning") {
           updated.guests = 0;
@@ -356,9 +352,9 @@ export const RestoProvider = ({ children }) => {
       })
     );
 
-    const foundTable = tables.find((t) => t.id === tableId || t.number === tNum);
-    const dbTableId = foundTable ? foundTable.id : tableId;
-    await updateRestaurantTableStatus(dbTableId, newStatus);
+    if (isUUID(targetId)) {
+      await updateRestaurantTableStatus(targetId, newStatus);
+    }
   };
 
   const broadcast = (payload) => {

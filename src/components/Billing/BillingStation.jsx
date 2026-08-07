@@ -31,7 +31,8 @@ export const BillingStation = () => {
       (o) =>
         (o.tableId === t.id ||
          o.tableId === `T${t.number}` ||
-         parseInt(String(o.tableId).replace(/\D/g, ""), 10) === t.number) &&
+         (typeof o.tableId === "string" && o.tableId.startsWith("T") && parseInt(o.tableId.replace("T", ""), 10) === t.number) ||
+         o.tableId === t.number) &&
         o.status !== "Cancelled"
     );
     return t.status === "occupied" || t.status === "awaiting_payment" || hasOrder;
@@ -48,9 +49,12 @@ export const BillingStation = () => {
   }, [selectedTableForBilling]);
 
   const activeTable = tables.find(
-    (t) => t.id === activeTableId || t.number === parseInt(String(activeTableId).replace(/\D/g, ""), 10)
+    (t) =>
+      t.id === activeTableId ||
+      (typeof activeTableId === "string" && activeTableId.startsWith("T") && t.number === parseInt(activeTableId.replace("T", ""), 10)) ||
+      t.number === activeTableId
   );
-  const activeTableNum = activeTable ? activeTable.number : parseInt(String(activeTableId).replace(/\D/g, ""), 10);
+  const activeTableNum = activeTable ? activeTable.number : (typeof activeTableId === "string" && activeTableId.startsWith("T") ? parseInt(activeTableId.replace("T", ""), 10) : 1);
   const activeTableUuid = activeTable ? activeTable.id : activeTableId;
 
   const activeOrder = activeOrders.find(
@@ -58,7 +62,8 @@ export const BillingStation = () => {
       (o.tableId === activeTableId ||
        o.tableId === activeTableUuid ||
        o.tableId === `T${activeTableNum}` ||
-       parseInt(String(o.tableId).replace(/\D/g, ""), 10) === activeTableNum) &&
+       (typeof o.tableId === "string" && o.tableId.startsWith("T") && parseInt(o.tableId.replace("T", ""), 10) === activeTableNum) ||
+       o.tableId === activeTableNum) &&
       o.status !== "Cancelled"
   );
 
@@ -202,7 +207,7 @@ export const BillingStation = () => {
                   setSelectedTableForBilling(t.id);
                 }}
               >
-                <span className="pill-table-id">T{t.number || parseInt(String(t.id).replace(/\D/g, ""), 10) || t.id}</span>
+                <span className="pill-table-id">T{t.number || t.id}</span>
                 <span className="pill-status">
                   {hasOrder ? `₹${t.activeOrderTotal}` : "Vacant"}
                 </span>
