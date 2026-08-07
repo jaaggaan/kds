@@ -252,7 +252,7 @@ export const fetchOrders = async () => {
   try {
     const { data: ordersData, error: ordersErr } = await supabase
       .from("orders")
-      .select("*, order_items(*)")
+      .select("*, order_items(*, menu_items(*))")
       .order("created_at", { ascending: false });
 
     if (ordersErr) throw ordersErr;
@@ -266,8 +266,22 @@ export const fetchOrders = async () => {
 
 export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => {
   try {
+    // 1. Resolve table UUID
+    let dbTableUuid = isUUID(tableId) ? tableId : null;
+    if (!dbTableUuid) {
+      const num = parseInt(String(tableId).replace(/\D/g, ""), 10);
+      if (!isNaN(num)) {
+        const { data: tableData } = await supabase
+          .from("restaurant_tables")
+          .select("id")
+          .eq("table_number", num)
+          .maybeSingle();
+        if (tableData?.id) dbTableUuid = tableData.id;
+      }
+    }
+
     const orderPayload = {
-      table_id: isUUID(tableId) ? tableId : null,
+      table_id: dbTableUuid,
       order_status: "New",
       total: parseFloat(total) || 0,
       discount: 0,
@@ -284,13 +298,26 @@ export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => 
     const newOrder = orderData?.[0];
 
     if (newOrder && items && items.length > 0) {
-      const lineItemsPayload = items.map((item) => ({
-        order_id: newOrder.id,
-        menu_item_id: isUUID(item.menuItemId || item.id) ? item.menuItemId || item.id : null,
-        price: parseFloat(item.price) || 0,
-        quantity: parseInt(item.qty || item.quantity, 10) || 1,
-        notes: item.notes || (item.customizations ? item.customizations.join(", ") : "") || notes || ""
-      }));
+      // Fetch menu items to map item names to valid menu_item_id UUIDs if needed
+      const { data: allMenuItems } = await supabase.from("menu_items").select("id, item_name");
+
+      const lineItemsPayload = items.map((item) => {
+        let menuItemUuid = isUUID(item.menuItemId || item.id) ? item.menuItemId || item.id : null;
+        if (!menuItemUuid && allMenuItems) {
+          const matched = allMenuItems.find(
+            (m) => m.item_name.toLowerCase() === (item.name || "").toLowerCase()
+          );
+          if (matched) menuItemUuid = matched.id;
+        }
+
+        return {
+          order_id: newOrder.id,
+          menu_item_id: menuItemUuid,
+          price: parseFloat(item.price) || 0,
+          quantity: parseInt(item.qty || item.quantity, 10) || 1,
+          notes: item.notes || (item.customizations ? item.customizations.join(", ") : "") || notes || ""
+        };
+      });
 
       const { error: itemsErr } = await supabase
         .from("order_items")
@@ -301,9 +328,9 @@ export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => 
       }
     }
 
-    // Update table status to occupied if tableId is valid UUID
-    if (isUUID(tableId)) {
-      await updateRestaurantTableStatus(tableId, "occupied");
+    // Update table status to occupied if table UUID is resolved
+    if (dbTableUuid) {
+      await updateRestaurantTableStatus(dbTableUuid, "occupied");
     }
 
     logApi("createOrderInDb", newOrder);
@@ -391,6 +418,14 @@ export const subscribeToRealtimeChanges = (onDataChange) => {
       (payload) => {
         logApi("Realtime orders event", payload);
         onDataChange("orders", payload);
+      }
+    )
+    .on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "order_items" },
+      (payload) => {
+        logApi("Realtime order_items event", payload);
+        onDataChange("order_items", payload);
       }
     )
     .on(

@@ -70,10 +70,12 @@ export const RestoProvider = ({ children }) => {
   const mapDbOrder = (dbOrder) => {
     const items = (dbOrder.order_items || []).map((i) => {
       const foundMenuItem = menuItems.find((m) => String(m.id) === String(i.menu_item_id));
+      const dishName = i.menu_items?.item_name || i.menu_items?.name || foundMenuItem?.name || "Delicious Item";
+
       return {
         id: i.id,
         menuItemId: i.menu_item_id,
-        name: i.menu_items?.item_name || foundMenuItem?.name || "Delicious Item",
+        name: dishName,
         price: parseFloat(i.price) || 0,
         qty: parseInt(i.quantity, 10) || 1,
         customizations: i.notes ? [i.notes] : []
@@ -346,11 +348,14 @@ export const RestoProvider = ({ children }) => {
     const dbTableId = foundTable ? foundTable.id : tableId;
     const displayTableId = foundTable ? `T${foundTable.number}` : tableId;
 
-    // Save to Supabase DB
+    // Save to Supabase DB as the ONLY source of truth
     const dbOrder = await createOrderInDb({ tableId: dbTableId, items, total: totalAmount, notes });
 
+    // Synchronize data model directly from Supabase DB
+    await loadSupabaseData();
+
     const newOrderId = dbOrder?.id || `ORD-${Math.floor(100 + Math.random() * 900)}`;
-    const newOrder = {
+    const newOrderPayload = {
       id: newOrderId,
       tableId: displayTableId,
       customerName: "Customer",
@@ -363,22 +368,7 @@ export const RestoProvider = ({ children }) => {
       totalAmount
     };
 
-    setActiveOrders((prev) => [newOrder, ...prev]);
-    setTables((prev) =>
-      prev.map((t) => {
-        if (t.id !== tableId && t.id !== dbTableId && t.number !== tNum) return t;
-        return {
-          ...t,
-          status: "occupied",
-          guests: guests || 2,
-          seatedTime: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-          orderId: newOrderId,
-          activeOrderTotal: totalAmount,
-        };
-      })
-    );
-
-    broadcast({ type: "NEW_ORDER", order: newOrder, tableId: displayTableId });
+    broadcast({ type: "NEW_ORDER", order: newOrderPayload, tableId: displayTableId });
     return newOrderId;
   };
 
