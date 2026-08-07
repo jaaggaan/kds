@@ -29,6 +29,16 @@ export const CaptivePortalView = () => {
       alert("Please enter your name and phone number to connect to TRUFFLES High-Speed Wi-Fi.");
       return;
     }
+    try {
+      localStorage.setItem("truffles_selected_table", String(selectedTableId));
+      localStorage.setItem("truffles_last_event", JSON.stringify({
+        type: "TABLE_CHECKIN",
+        tableId: selectedTableId,
+        customerName: guestName,
+        customerPhone: phone,
+        timestamp: Date.now()
+      }));
+    } catch {}
     setStep("menu");
   };
 
