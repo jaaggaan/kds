@@ -266,19 +266,38 @@ export const fetchOrders = async () => {
 
 export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => {
   try {
-    // 1. Resolve table UUID
+    // 1. Resolve table UUID safely without regex digit stripping on UUIDs
     let dbTableUuid = isUUID(tableId) ? tableId : null;
+    let tableNumberFound = null;
+
     if (!dbTableUuid) {
-      const num = parseInt(String(tableId).replace(/\D/g, ""), 10);
+      let num = NaN;
+      if (typeof tableId === "number") {
+        num = tableId;
+      } else if (typeof tableId === "string" && !isUUID(tableId)) {
+        const clean = tableId.trim().toUpperCase().replace(/^T/, "");
+        num = parseInt(clean, 10);
+      }
+
       if (!isNaN(num)) {
+        tableNumberFound = num;
         const { data: tableData } = await supabase
           .from("restaurant_tables")
-          .select("id")
+          .select("id, table_number")
           .eq("table_number", num)
           .maybeSingle();
         if (tableData?.id) dbTableUuid = tableData.id;
       }
+    } else {
+      const { data: tableData } = await supabase
+        .from("restaurant_tables")
+        .select("table_number")
+        .eq("id", dbTableUuid)
+        .maybeSingle();
+      if (tableData?.table_number) tableNumberFound = tableData.table_number;
     }
+
+    console.log(`[Supabase Table Audit] Input tableId: "${tableId}" -> Table #${tableNumberFound} -> Resolved DB UUID: "${dbTableUuid}"`);
 
     const orderPayload = {
       table_id: dbTableUuid,
@@ -296,6 +315,8 @@ export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => 
 
     if (orderErr) throw orderErr;
     const newOrder = orderData?.[0];
+
+    console.log(`[Supabase Order Audit] Order created UUID: "${newOrder?.id}" | Assigned table_id: "${newOrder?.table_id}"`);
 
     if (newOrder && items && items.length > 0) {
       // Fetch menu items to map item names to valid menu_item_id UUIDs if needed
@@ -328,9 +349,16 @@ export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => 
       }
     }
 
-    // Update table status to occupied if table UUID is resolved
+    // Update table status to occupied for the EXACT resolved table UUID
     if (dbTableUuid) {
-      await updateRestaurantTableStatus(dbTableUuid, "occupied");
+      const { data: updatedTableData, error: tableUpdateErr } = await supabase
+        .from("restaurant_tables")
+        .update({ status: "occupied" })
+        .eq("id", dbTableUuid)
+        .select();
+
+      console.log(`[Supabase Table Audit] Updated restaurant_tables row Table #${tableNumberFound} UUID "${dbTableUuid}" to status:`, updatedTableData?.[0]?.status);
+      if (tableUpdateErr) console.error(`[Supabase Table Error]`, tableUpdateErr);
     }
 
     logApi("createOrderInDb", newOrder);

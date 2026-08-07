@@ -44,6 +44,35 @@ export const RestoProvider = ({ children }) => {
   // Track last processed event timestamp
   const lastProcessedTs = useRef(0);
 
+  // Helper to safely resolve a table from tables array without running digit stripping on UUIDs
+  const resolveTable = useCallback((tableId, tablesList = tables) => {
+    if (!tableId || !Array.isArray(tablesList) || tablesList.length === 0) return null;
+    const strId = String(tableId).trim();
+
+    // 1. Direct match on table.id (e.g. Postgres UUID or exact "T5")
+    const directMatch = tablesList.find((t) => String(t.id) === strId);
+    if (directMatch) return directMatch;
+
+    // 2. Parse table number safely ONLY if strId is NOT a UUID
+    const isUUIDFormat = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(strId);
+    if (!isUUIDFormat) {
+      let num = NaN;
+      if (typeof tableId === "number") {
+        num = tableId;
+      } else {
+        const clean = strId.toUpperCase().replace(/^T/, "");
+        num = parseInt(clean, 10);
+      }
+
+      if (!isNaN(num)) {
+        const numMatch = tablesList.find((t) => t.number === num);
+        if (numMatch) return numMatch;
+      }
+    }
+
+    return null;
+  }, [tables]);
+
   // Helper to map DB categories to frontend format
   const mapDbCategory = (dbCat) => ({
     id: dbCat.id,
@@ -82,9 +111,7 @@ export const RestoProvider = ({ children }) => {
       };
     });
 
-    const foundTable = tables.find(
-      (t) => t.id === dbOrder.table_id || t.number === parseInt(String(dbOrder.table_id).replace(/\D/g, ""), 10)
-    );
+    const foundTable = resolveTable(dbOrder.table_id, tables);
     const displayTableId = foundTable ? `T${foundTable.number}` : dbOrder.table_id || "T1";
 
     return {
@@ -343,10 +370,11 @@ export const RestoProvider = ({ children }) => {
   const createOrder = async ({ tableId, items, guests = 2, notes = "" }) => {
     const totalAmount = items.reduce((s, i) => s + i.price * i.qty, 0);
 
-    const tNum = parseInt(String(tableId).replace(/\D/g, ""), 10);
-    const foundTable = tables.find((t) => t.id === tableId || t.number === tNum);
+    const foundTable = resolveTable(tableId, tables);
     const dbTableId = foundTable ? foundTable.id : tableId;
-    const displayTableId = foundTable ? `T${foundTable.number}` : tableId;
+    const displayTableId = foundTable ? `T${foundTable.number}` : (String(tableId).startsWith("T") ? tableId : `T${tableId}`);
+
+    console.log(`[Table Trace Log] Selected UI tableId: "${tableId}" -> Found Table #${foundTable?.number} -> DB UUID: "${dbTableId}" -> Display: "${displayTableId}"`);
 
     // Save to Supabase DB as the ONLY source of truth
     const dbOrder = await createOrderInDb({ tableId: dbTableId, items, total: totalAmount, notes });
