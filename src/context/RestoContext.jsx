@@ -214,6 +214,20 @@ export const RestoProvider = ({ children }) => {
                 customerName: matchingOrder.customerName || "Customer",
               };
             }
+            // Auto-clean tables with no active order
+            if (t.status === "occupied" || t.status === "awaiting_payment") {
+              updateRestaurantTableStatus(t.id, "vacant");
+              return {
+                ...t,
+                status: "vacant",
+                guests: 0,
+                seatedTime: null,
+                orderId: null,
+                activeOrderTotal: 0,
+                customerName: null,
+                customerPhone: null,
+              };
+            }
             return t;
           })
         );
