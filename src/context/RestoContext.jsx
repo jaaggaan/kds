@@ -168,70 +168,149 @@ export const RestoProvider = ({ children }) => {
         if (fresh?.length > 0) setMenuItems(fresh.map(mapDbMenuItem));
       }
 
-      // 3. Restaurant Tables
+      // 3. Restaurant Tables from Supabase (SINGLE SOURCE OF TRUTH)
       const dbTables = await fetchRestaurantTables();
       let loadedTables = INITIAL_TABLES;
       if (dbTables && dbTables.length > 0) {
-        loadedTables = dbTables.map(mapDbTable);
-        setTables(loadedTables);
+        loadedTables = dbTables.map(mapDbTable).sort((a, b) => a.number - b.number);
       } else {
         for (const tbl of INITIAL_TABLES) {
           await upsertRestaurantTable(tbl);
         }
         const fresh = await fetchRestaurantTables();
         if (fresh?.length > 0) {
-          loadedTables = fresh.map(mapDbTable);
-          setTables(loadedTables);
+          loadedTables = fresh.map(mapDbTable).sort((a, b) => a.number - b.number);
         }
       }
 
-      // 4. Orders & Table Status Sync
+      // 4. Orders from Supabase
       const dbOrders = await fetchOrders();
-      if (dbOrders && dbOrders.length > 0) {
-        const activeList = dbOrders
-          .filter((o) => o.order_status !== "Completed" && o.order_status !== "Cancelled" && o.payment_status !== "Paid")
-          .map(mapDbOrder);
+      const allDbOrders = (dbOrders || []).map((o) => ({
+        ...mapDbOrder(o),
+        paymentStatus: o.payment_status,
+        rawTableId: o.table_id
+      }));
 
-        setActiveOrders(activeList);
+      const activeList = allDbOrders.filter(
+        (o) => o.status !== "Completed" && o.status !== "Cancelled" && o.paymentStatus !== "Paid"
+      );
 
-        // Reflect active orders onto Table Map grid
-        setTables((prevTables) =>
-          prevTables.map((t) => {
-            const matchingOrder = activeList.find(
-              (o) =>
-                o.tableId === `T${t.number}` ||
-                o.tableId === t.id ||
-                (typeof o.tableId === "string" && o.tableId.startsWith("T") && parseInt(o.tableId.replace("T", ""), 10) === t.number)
-            );
-            if (matchingOrder) {
-              return {
-                ...t,
-                status: "occupied",
-                guests: t.guests > 0 ? t.guests : 2,
-                seatedTime: t.seatedTime || new Date(matchingOrder.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-                orderId: matchingOrder.id,
-                activeOrderTotal: matchingOrder.totalAmount,
-                customerName: matchingOrder.customerName || "Customer",
-              };
+      setActiveOrders(activeList);
+
+      // 5. Inspect every table with status = 'needs_cleaning' for persistent timestamp-based auto-vacant transition
+      let cleaningTimestamps = {};
+      try {
+        cleaningTimestamps = JSON.parse(localStorage.getItem("truffles_table_cleaning_timestamps") || "{}");
+      } catch {}
+
+      for (const t of loadedTables) {
+        if (t.status === "needs_cleaning") {
+          const cleanedAtMs = cleaningTimestamps[t.id] || Date.now();
+          const elapsedMs = Date.now() - cleanedAtMs;
+
+          if (elapsedMs >= 20000) {
+            console.log(`[Timestamp Cleaning Lifecycle] Table #${t.number} in needs_cleaning for ${Math.round(elapsedMs / 1000)}s (>= 20s). Setting status to 'vacant' in Supabase.`);
+            if (isUUID(t.id)) {
+              await updateRestaurantTableStatus(t.id, "vacant");
             }
-            // Auto-clean tables with no active order
-            if (t.status === "occupied" || t.status === "awaiting_payment") {
-              updateRestaurantTableStatus(t.id, "vacant");
-              return {
-                ...t,
-                status: "vacant",
-                guests: 0,
-                seatedTime: null,
-                orderId: null,
-                activeOrderTotal: 0,
-                customerName: null,
-                customerPhone: null,
-              };
+            t.status = "vacant";
+            t.guests = 0;
+            t.seatedTime = null;
+            t.orderId = null;
+            t.activeOrderTotal = 0;
+            t.customerName = null;
+            t.customerPhone = null;
+            delete cleaningTimestamps[t.id];
+          } else {
+            const remainingMs = Math.max(100, 20000 - elapsedMs);
+            console.log(`[Timestamp Cleaning Lifecycle] Table #${t.number} in needs_cleaning for ${Math.round(elapsedMs / 1000)}s. Scheduling timer for remaining ${Math.round(remainingMs / 1000)}s.`);
+
+            if (!cleaningTimers.current.has(t.id)) {
+              const timerId = setTimeout(async () => {
+                console.log(`[Timestamp Timer Expired] Remaining time elapsed for Table #${t.number}. Transitioning status to 'vacant'.`);
+                if (isUUID(t.id)) {
+                  await updateRestaurantTableStatus(t.id, "vacant");
+                }
+                setTables((prev) =>
+                  prev.map((item) =>
+                    item.id === t.id
+                      ? {
+                          ...item,
+                          status: "vacant",
+                          guests: 0,
+                          seatedTime: null,
+                          orderId: null,
+                          activeOrderTotal: 0,
+                          customerName: null,
+                          customerPhone: null
+                        }
+                      : item
+                  )
+                );
+                cleaningTimers.current.delete(t.id);
+                try {
+                  const tsObj = JSON.parse(localStorage.getItem("truffles_table_cleaning_timestamps") || "{}");
+                  delete tsObj[t.id];
+                  localStorage.setItem("truffles_table_cleaning_timestamps", JSON.stringify(tsObj));
+                } catch {}
+                loadSupabaseData();
+              }, remainingMs);
+
+              cleaningTimers.current.set(t.id, timerId);
             }
-            return t;
-          })
-        );
+          }
+        }
       }
+
+      try {
+        localStorage.setItem("truffles_table_cleaning_timestamps", JSON.stringify(cleaningTimestamps));
+      } catch {}
+
+      // 6. Merge order items into table objects WITHOUT overriding Supabase table status
+      const synchronizedTables = loadedTables.map((t) => {
+        const matchingOrder = allDbOrders.find(
+          (o) =>
+            o.rawTableId === t.id ||
+            o.tableId === `T${t.number}` ||
+            o.tableId === t.id ||
+            (typeof o.tableId === "string" && o.tableId.startsWith("T") && parseInt(o.tableId.replace("T", ""), 10) === t.number)
+        );
+
+        const isPaid = matchingOrder ? matchingOrder.paymentStatus === "Paid" : false;
+
+        if (matchingOrder && t.status === "occupied") {
+          return {
+            ...t,
+            orderId: matchingOrder.id,
+            activeOrderTotal: matchingOrder.totalAmount,
+            customerName: matchingOrder.customerName || "Customer",
+            isPaid: isPaid
+          };
+        }
+
+        // If table status in Supabase DB is vacant or needs_cleaning, preserve DB status and clear active order data
+        if (t.status === "vacant" || t.status === "needs_cleaning") {
+          return {
+            ...t,
+            orderId: null,
+            activeOrderTotal: 0,
+            customerName: null,
+            customerPhone: null,
+            isPaid: false
+          };
+        }
+
+        return { ...t, isPaid: false };
+      });
+
+      setTables(synchronizedTables);
+
+      // Audit Log: Verify Supabase occupied tables vs React occupied tables
+      const supabaseOccupied = dbTables ? dbTables.filter((t) => t.status === "occupied").map((t) => t.table_number) : [];
+      const reactOccupied = synchronizedTables.filter((t) => t.status === "occupied").map((t) => t.number);
+
+      console.log(`[Single Source of Truth Audit] Supabase Occupied Tables:`, supabaseOccupied);
+      console.log(`[Single Source of Truth Audit] React Occupied Tables:`, reactOccupied);
 
       setIsDbLoaded(true);
     } catch (err) {
@@ -251,6 +330,132 @@ export const RestoProvider = ({ children }) => {
     });
     return () => unsubscribe();
   }, [loadSupabaseData]);
+
+  // Reusable 20-second cleaning lifecycle manager per table (Bug 1 Fix with Numbered Logs)
+  const cleaningTimers = useRef(new Map());
+
+  const markTableNeedsCleaningAndStartTimer = useCallback(async (tableId) => {
+    const foundTable = resolveTable(tableId, tables);
+    const targetId = foundTable ? foundTable.id : tableId;
+    const tableNum = foundTable ? foundTable.number : tableId;
+
+    if (!targetId) return;
+
+    // Prevent duplicate timers if table is already in needs_cleaning state
+    if (cleaningTimers.current.has(targetId)) {
+      console.log(`[Logout Warning] Table #${tableNum} is ALREADY in needs_cleaning state with an active 20s timer.`);
+      return;
+    }
+
+    console.log(`[6] updateRestaurantTableStatus called for tableId: ${targetId} (Table #${tableNum})`);
+    console.log(`[7] Executing Supabase UPDATE: restaurant_tables.status = 'needs_cleaning'`);
+
+    // Step 1: Complete active order in database
+    const activeOrderForTable = activeOrders.find(
+      (o) => (o.tableId === targetId || o.tableId === `T${tableNum}`) && o.status !== "Cancelled" && o.status !== "Completed"
+    );
+
+    if (activeOrderForTable && isUUID(activeOrderForTable.id)) {
+      console.log(`[Logout] Completing active order ${activeOrderForTable.id} for Table #${tableNum} in database...`);
+      try {
+        await updateOrderStatusInDb(activeOrderForTable.id, "Completed");
+      } catch (err) {
+        console.error(`[Logout Error] Failed to complete active order ${activeOrderForTable.id}:`, err);
+      }
+    }
+
+    // Step 2: Immediately update Supabase DB & React state to 'needs_cleaning'
+    if (isUUID(targetId)) {
+      const { data: updateRes, error: updateErr } = await supabase
+        .from("restaurant_tables")
+        .update({ status: "needs_cleaning" })
+        .eq("id", targetId)
+        .select();
+
+      if (updateErr) {
+        console.error(`[Supabase UPDATE Error] Failed to set needs_cleaning:`, updateErr);
+      } else {
+        console.log(`[8] UPDATE success:`, updateRes?.[0]);
+      }
+    }
+
+    setTables((prev) =>
+      prev.map((t) => (t.id === targetId || t.number === tableNum ? { ...t, status: "needs_cleaning" } : t))
+    );
+
+    console.log(`[9] Status changed to needs_cleaning for Table #${tableNum}`);
+    console.log(`[10] Timer started (20 seconds)`);
+
+    // Persist timestamp for reload resilience
+    try {
+      const tsObj = JSON.parse(localStorage.getItem("truffles_table_cleaning_timestamps") || "{}");
+      tsObj[targetId] = Date.now();
+      localStorage.setItem("truffles_table_cleaning_timestamps", JSON.stringify(tsObj));
+    } catch {}
+
+    // Broadcast Realtime Event to update POS, Kitchen, Billing, Table Map, Captive Portal
+    try {
+      localStorage.setItem(
+        "truffles_last_event",
+        JSON.stringify({ type: "TABLE_STATUS_UPDATE", tableId: targetId, status: "needs_cleaning", timestamp: Date.now() })
+      );
+    } catch {}
+
+    // Step 3: Start exactly 20-second timer (20,000 ms)
+    const timerId = setTimeout(async () => {
+      console.log(`[11] Timer expired for Table #${tableNum} (UUID: ${targetId})`);
+      console.log(`[12] Updating status to vacant & clearing customer session data...`);
+
+      // Clear customer data, active order reference, and set status to 'vacant'
+      if (isUUID(targetId)) {
+        const { data: vacantRes, error: vacantErr } = await supabase
+          .from("restaurant_tables")
+          .update({ status: "vacant" })
+          .eq("id", targetId)
+          .select();
+
+        if (vacantErr) {
+          console.error(`[Supabase UPDATE Error] Failed to set vacant:`, vacantErr);
+        } else {
+          console.log(`[13] UPDATE success:`, vacantRes?.[0]);
+        }
+      }
+
+      setTables((prev) =>
+        prev.map((t) => {
+          if (t.id === targetId || t.number === tableNum) {
+            return {
+              ...t,
+              status: "vacant",
+              guests: 0,
+              seatedTime: null,
+              orderId: null,
+              activeOrderTotal: 0,
+              customerName: null,
+              customerPhone: null
+            };
+          }
+          return t;
+        })
+      );
+
+      // Clean up timer reference
+      cleaningTimers.current.delete(targetId);
+
+      // Broadcast Realtime Event for vacant transition
+      try {
+        localStorage.setItem(
+          "truffles_last_event",
+          JSON.stringify({ type: "TABLE_STATUS_UPDATE", tableId: targetId, status: "vacant", timestamp: Date.now() })
+        );
+      } catch {}
+
+      // Reload Supabase state for complete synchronization
+      await loadSupabaseData();
+    }, 20000);
+
+    cleaningTimers.current.set(targetId, timerId);
+  }, [resolveTable, tables, activeOrders, loadSupabaseData]);
 
   // Process incoming cross-port events from Captive Portal via localStorage
   const processEvent = useCallback((payload) => {
@@ -303,23 +508,9 @@ export const RestoProvider = ({ children }) => {
     }
 
     if (type === "TABLE_VACATE" || type === "TABLE_LOGOUT") {
-      const targetTable = resolveTable(payload.tableId, tables);
-      const targetId = targetTable ? targetTable.id : payload.tableId;
-
-      if (targetId) {
-        console.log(`[Logout Cleaning Transition] Table ${targetTable?.number || targetId} logged out. Setting status to 'needs_cleaning' for 30 seconds.`);
-        
-        // 1. Set status to 'needs_cleaning' immediately in Supabase DB and local state
-        updateTableStatus(targetId, "needs_cleaning");
-
-        // 2. Set 30-second timer to transition status to 'vacant'
-        setTimeout(() => {
-          console.log(`[Logout Cleaning Transition Complete] 30s elapsed for Table ${targetTable?.number || targetId}. Setting status to 'vacant'.`);
-          updateTableStatus(targetId, "vacant");
-        }, 30000);
-      }
+      markTableNeedsCleaningAndStartTimer(payload.tableId);
     }
-  }, [resolveTable, tables]);
+  }, [resolveTable, tables, markTableNeedsCleaningAndStartTimer]);
 
   // Sync localStorage cross-port events
   useEffect(() => {
@@ -351,11 +542,16 @@ export const RestoProvider = ({ children }) => {
     const foundTable = resolveTable(tableId, tables);
     const targetId = foundTable ? foundTable.id : tableId;
 
+    if (newStatus === "needs_cleaning") {
+      markTableNeedsCleaningAndStartTimer(targetId);
+      return;
+    }
+
     setTables((prev) =>
       prev.map((t) => {
         if (t.id !== targetId) return t;
         const updated = { ...t, status: newStatus };
-        if (newStatus === "vacant" || newStatus === "needs_cleaning") {
+        if (newStatus === "vacant") {
           updated.guests = 0;
           updated.seatedTime = null;
           updated.orderId = null;

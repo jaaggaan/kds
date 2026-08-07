@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useResto } from "../../context/RestoContext";
+import { executeDirectTableLogout } from "../../lib/supabase";
 import { Wifi, Smartphone, Utensils, Check, ShoppingBag, Plus, Minus, ArrowRight, User, LogOut } from "lucide-react";
 
 export const CaptivePortalView = () => {
@@ -11,17 +12,21 @@ export const CaptivePortalView = () => {
   const [phone, setPhone] = useState("");
   const [selectedTableId, setSelectedTableId] = useState("T1");
 
-  const handleLogoutPortal = () => {
+  const selectedTableObj = tables.find(
+    (t) => t.id === selectedTableId || t.number === parseInt(String(selectedTableId).replace(/\D/g, ""), 10)
+  );
+  const displayTableLabel = selectedTableObj ? `Table ${selectedTableObj.number}` : `Table ${selectedTableId}`;
+
+  const handleLogoutPortal = async () => {
     if (window.confirm("Disconnect Wi-Fi and return to check-in screen?")) {
-      try {
-        localStorage.setItem("truffles_last_event", JSON.stringify({
-          type: "TABLE_LOGOUT",
-          tableId: selectedTableId,
-          timestamp: Date.now()
-        }));
-      } catch {}
+      const tableToLogout = selectedTableId || localStorage.getItem("truffles_selected_table") || "1";
+      console.log(`[Captive Portal Logout] Synchronously awaiting direct Supabase database updates for table: ${tableToLogout}...`);
+
+      // 1. Await direct Supabase DB updates synchronously BEFORE clearing state/reloading
+      await executeDirectTableLogout(tableToLogout);
 
       setCart([]);
+      localStorage.removeItem("truffles_user_info");
       setStep("connect");
     }
   };
@@ -192,7 +197,7 @@ export const CaptivePortalView = () => {
                 <div className="guest-welcome">
                   <span className="caption-text">Connected to TRUFFLES Wi-Fi</span>
                   <h3>Hello, {guestName} 👋</h3>
-                  <small style={{ color: "#FF6B35" }}>Table {selectedTableId}</small>
+                  <small style={{ color: "#FF6B35" }}>{displayTableLabel}</small>
                 </div>
 
                 <button

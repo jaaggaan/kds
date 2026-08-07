@@ -233,7 +233,7 @@ export const TableDetailModal = ({ table, onClose, onOpenNewOrder }) => {
             Close
           </button>
 
-          {activeOrder ? (
+          {activeOrder && (
             <div style={{ display: "flex", gap: "8px" }}>
               <button
                 className="btn-action"
@@ -247,14 +247,7 @@ export const TableDetailModal = ({ table, onClose, onOpenNewOrder }) => {
               >
                 <Trash2 size={14} /> Cancel
               </button>
-              <button className="btn-primary" onClick={handleGenerateBill}>
-                <CreditCard size={14} /> Bill & Pay
-              </button>
             </div>
-          ) : (
-            <span style={{ fontSize: "12px", color: "var(--text-muted)", fontStyle: "italic", background: "var(--bg-secondary)", padding: "6px 12px", borderRadius: "6px", border: "1px solid var(--border)" }}>
-              📱 Customer places order directly via Captive Portal
-            </span>
           )}
         </div>
       </div>

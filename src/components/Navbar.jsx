@@ -104,22 +104,6 @@ export const Navbar = () => {
         </button>
 
         <button
-          className={`nav-tab ${activeTab === "captive_portal" ? "active" : ""}`}
-          onClick={() => setActiveTab("captive_portal")}
-        >
-          <Smartphone size={15} />
-          <span>Captive Portal</span>
-        </button>
-
-        <button
-          className={`nav-tab ${activeTab === "billing" ? "active" : ""}`}
-          onClick={() => setActiveTab("billing")}
-        >
-          <CreditCard size={15} />
-          <span>Billing</span>
-        </button>
-
-        <button
           className={`nav-tab ${activeTab === "analytics" ? "active" : ""}`}
           onClick={() => setActiveTab("analytics")}
         >
@@ -141,14 +125,6 @@ export const Navbar = () => {
         >
           <QrCode size={15} />
           <span>QR Generator</span>
-        </button>
-
-        <button
-          className={`nav-tab ${activeTab === "esp32" ? "active" : ""}`}
-          onClick={() => setActiveTab("esp32")}
-        >
-          <Cpu size={15} />
-          <span>ESP32</span>
         </button>
       </nav>
 

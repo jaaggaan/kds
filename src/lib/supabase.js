@@ -246,6 +246,200 @@ export const updateRestaurantTableStatus = async (tableId, status) => {
   }
 };
 
+export const executeDirectTableLogout = async (tableIdOrNum) => {
+  try {
+    console.log(`[Direct Supabase Logout] Initiating direct database logout for table: "${tableIdOrNum}"...`);
+
+    // 1. Resolve table row from Supabase
+    let targetTable = null;
+
+    if (isUUID(tableIdOrNum)) {
+      const { data } = await supabase.from("restaurant_tables").select("*").eq("id", tableIdOrNum).single();
+      targetTable = data;
+    } else {
+      let num = parseInt(String(tableIdOrNum).replace(/\D/g, ""), 10) || 1;
+      const { data } = await supabase.from("restaurant_tables").select("*").eq("table_number", num).single();
+      targetTable = data;
+    }
+
+    if (!targetTable) {
+      console.warn(`[Direct Supabase Logout Warning] Could not find restaurant_table for: "${tableIdOrNum}"`);
+      return false;
+    }
+
+    console.log(`[Direct Supabase Logout] Resolved Table #${targetTable.table_number} (UUID: ${targetTable.id})`);
+
+    // 2. Complete active orders for this table in Supabase orders table
+    const { data: activeOrders } = await supabase
+      .from("orders")
+      .select("id")
+      .eq("table_id", targetTable.id)
+      .neq("order_status", "Cancelled")
+      .neq("order_status", "Completed");
+
+    if (activeOrders && activeOrders.length > 0) {
+      for (const ord of activeOrders) {
+        console.log(`[Direct Supabase Logout] Marking order ${ord.id} as Completed and Paid...`);
+        await supabase
+          .from("orders")
+          .update({ order_status: "Completed", payment_status: "Paid" })
+          .eq("id", ord.id);
+      }
+    }
+
+    // 3. Update restaurant_tables.status to 'needs_cleaning' in Supabase
+    console.log(`[Direct Supabase Logout] Updating restaurant_tables.status to 'needs_cleaning'...`);
+    const { data: updatedTable, error: tableErr } = await supabase
+      .from("restaurant_tables")
+      .update({ status: "needs_cleaning" })
+      .eq("id", targetTable.id)
+      .select();
+
+    if (tableErr) {
+      console.error(`[Direct Supabase Logout Error] Table status update failed:`, tableErr);
+    } else {
+      console.log(`[Direct Supabase Logout Success] Table #${targetTable.table_number} set to 'needs_cleaning':`, updatedTable?.[0]);
+    }
+
+    // 4. Store cleaning timestamp for the 20-second persistent cleaning lifecycle
+    try {
+      const tsObj = JSON.parse(localStorage.getItem("truffles_table_cleaning_timestamps") || "{}");
+      tsObj[targetTable.id] = Date.now();
+      localStorage.setItem("truffles_table_cleaning_timestamps", JSON.stringify(tsObj));
+    } catch {}
+
+    // 5. Broadcast Realtime Event
+    try {
+      localStorage.setItem(
+        "truffles_last_event",
+        JSON.stringify({ type: "TABLE_STATUS_UPDATE", tableId: targetTable.id, status: "needs_cleaning", timestamp: Date.now() })
+      );
+    } catch {}
+
+    return true;
+  } catch (err) {
+    console.error(`[Direct Supabase Logout Exception]`, err);
+    return false;
+  }
+};
+
+export const executeDirectTableSwitch = async (oldTableIdOrNum, newTableIdOrNum) => {
+  try {
+    console.log(`[Direct Supabase Table Switch] Switching table session from "${oldTableIdOrNum}" to "${newTableIdOrNum}"...`);
+
+    // 1. Resolve old table from Supabase
+    let oldTable = null;
+    if (isUUID(oldTableIdOrNum)) {
+      const { data } = await supabase.from("restaurant_tables").select("*").eq("id", oldTableIdOrNum).single();
+      oldTable = data;
+    } else {
+      const num = parseInt(String(oldTableIdOrNum).replace(/\D/g, ""), 10) || 1;
+      const { data } = await supabase.from("restaurant_tables").select("*").eq("table_number", num).single();
+      oldTable = data;
+    }
+
+    // 2. Resolve new table from Supabase
+    let newTable = null;
+    if (isUUID(newTableIdOrNum)) {
+      const { data } = await supabase.from("restaurant_tables").select("*").eq("id", newTableIdOrNum).single();
+      newTable = data;
+    } else {
+      const num = parseInt(String(newTableIdOrNum).replace(/\D/g, ""), 10) || 1;
+      const { data } = await supabase.from("restaurant_tables").select("*").eq("table_number", num).single();
+      newTable = data;
+    }
+
+    if (!oldTable || !newTable) {
+      console.warn(`[Direct Supabase Table Switch Warning] Could not resolve tables: old="${oldTableIdOrNum}", new="${newTableIdOrNum}"`);
+      return false;
+    }
+
+    console.log(`[Direct Supabase Table Switch] Reassigning orders from Table #${oldTable.table_number} (${oldTable.id}) to Table #${newTable.table_number} (${newTable.id})`);
+
+    // 3. Reassign active orders in Supabase orders table
+    const { data: reassignedOrders, error: orderErr } = await supabase
+      .from("orders")
+      .update({ table_id: newTable.id })
+      .eq("table_id", oldTable.id)
+      .neq("order_status", "Completed")
+      .neq("order_status", "Cancelled")
+      .select();
+
+    if (orderErr) {
+      console.error("[Direct Supabase Table Switch Error] Order reassignment failed:", orderErr);
+    } else {
+      console.log(`[Direct Supabase Table Switch Success] Reassigned ${reassignedOrders?.length || 0} active orders to Table #${newTable.table_number}`);
+    }
+
+    // 4. Update old table status to 'vacant' in Supabase
+    await supabase.from("restaurant_tables").update({ status: "vacant" }).eq("id", oldTable.id);
+
+    // 5. Update new table status to 'occupied' in Supabase
+    await supabase.from("restaurant_tables").update({ status: "occupied" }).eq("id", newTable.id);
+
+    console.log(`[Direct Supabase Table Switch Complete] Table #${oldTable.table_number} -> vacant, Table #${newTable.table_number} -> occupied`);
+    return true;
+  } catch (err) {
+    console.error("[Direct Supabase Table Switch Exception]", err);
+    return false;
+  }
+};
+
+export const executeDirectTablePayment = async (tableIdOrNum) => {
+  try {
+    console.log(`[Direct Supabase Payment] Processing direct database payment update for table: "${tableIdOrNum}"...`);
+
+    // 1. Resolve table row from Supabase
+    let targetTable = null;
+    if (isUUID(tableIdOrNum)) {
+      const { data } = await supabase.from("restaurant_tables").select("*").eq("id", tableIdOrNum).single();
+      targetTable = data;
+    } else {
+      const num = parseInt(String(tableIdOrNum).replace(/\D/g, ""), 10) || 1;
+      const { data } = await supabase.from("restaurant_tables").select("*").eq("table_number", num).single();
+      targetTable = data;
+    }
+
+    if (!targetTable) {
+      console.warn(`[Direct Supabase Payment Warning] Could not find table for: "${tableIdOrNum}"`);
+      return false;
+    }
+
+    console.log(`[Direct Supabase Payment] Resolved Table #${targetTable.table_number} (UUID: ${targetTable.id})`);
+
+    // 2. Mark active orders as Completed & Paid in Supabase orders table
+    const { data: updatedOrders, error: orderErr } = await supabase
+      .from("orders")
+      .update({ order_status: "Completed", payment_status: "Paid" })
+      .eq("table_id", targetTable.id)
+      .neq("order_status", "Cancelled")
+      .neq("order_status", "Completed")
+      .select();
+
+    if (orderErr) {
+      console.error("[Direct Supabase Payment Error] Orders update failed:", orderErr);
+    } else {
+      console.log(`[Direct Supabase Payment Success] Marked ${updatedOrders?.length || 0} active orders as Paid and Completed.`);
+    }
+
+    // 3. Keep table status as 'occupied' (it will transition to 'needs_cleaning' when customer clicks Logout)
+    console.log(`[Direct Supabase Payment Success] Table #${targetTable.table_number} remains occupied with Paid status until customer logs out.`);
+
+    // 4. Broadcast Realtime Event
+    try {
+      localStorage.setItem(
+        "truffles_last_event",
+        JSON.stringify({ type: "ORDER_PAID", tableId: targetTable.id, timestamp: Date.now() })
+      );
+    } catch {}
+
+    return true;
+  } catch (err) {
+    console.error("[Direct Supabase Payment Exception]", err);
+    return false;
+  }
+};
+
 
 // ── ORDERS & ORDER ITEMS API ──
 export const fetchOrders = async () => {

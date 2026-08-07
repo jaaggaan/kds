@@ -89,9 +89,15 @@ export const TableMap = () => {
           >
             <div className="table-card-header">
               <span className="table-number">T{table.number || table.id}</span>
-              <span className={`table-status-tag tag-${table.status}`}>
-                {getStatusBadgeLabel(table.status)}
-              </span>
+              {table.isPaid ? (
+                <span className="table-status-tag" style={{ backgroundColor: "#16a34a", color: "#ffffff", fontWeight: 700 }}>
+                  PAID
+                </span>
+              ) : (
+                <span className={`table-status-tag tag-${table.status}`}>
+                  {getStatusBadgeLabel(table.status)}
+                </span>
+              )}
             </div>
 
             <div className="table-card-body">
@@ -113,7 +119,9 @@ export const TableMap = () => {
                   </div>
                   <div className="card-detail-row active-total">
                     <Receipt size={14} />
-                    <span className="total-val">₹{table.activeOrderTotal}</span>
+                    <span className="total-val" style={{ color: table.isPaid ? "#16a34a" : "inherit" }}>
+                      ₹{table.activeOrderTotal} {table.isPaid ? "(Paid)" : ""}
+                    </span>
                   </div>
                 </>
               ) : table.status === "reserved" ? (
@@ -127,7 +135,7 @@ export const TableMap = () => {
                   <Sparkles size={20} color="#2563EB" style={{ animation: "pulse 1.5s ease-in-out infinite" }} />
                   <span style={{ color: "#2563EB", fontWeight: 700, fontSize: "12px", letterSpacing: "0.08em" }}>CLEANING IN PROGRESS</span>
                   <small style={{ color: "var(--text-muted)", fontSize: "10px" }}>Table will be ready soon</small>
-                  <small style={{ color: "var(--text-muted)", fontSize: "10px" }}>⏱ Auto-clears in 3 min</small>
+                  <small style={{ color: "var(--text-muted)", fontSize: "10px" }}>⏱ Auto-clears in 20s</small>
                 </div>
               ) : (
                 <div className="card-placeholder-text vacant">
