@@ -257,6 +257,29 @@ export const RestoProvider = ({ children }) => {
     if (!payload || !payload.type) return;
     const { type } = payload;
 
+    if (type === "NEW_ORDER") {
+      const incomingOrder = payload.order;
+      if (incomingOrder && incomingOrder.items && incomingOrder.items.length > 0) {
+        console.log(`[Captive Portal Order Event] Received NEW_ORDER for table: ${payload.tableId || incomingOrder.tableId}`, incomingOrder);
+
+        const targetTable = resolveTable(payload.tableId || incomingOrder.tableId, tables);
+        const dbTableId = targetTable ? targetTable.id : payload.tableId || incomingOrder.tableId;
+
+        // Persist order directly into Supabase PostgreSQL DB
+        createOrderInDb({
+          tableId: dbTableId,
+          items: incomingOrder.items,
+          total: incomingOrder.totalAmount || incomingOrder.total || 0,
+          notes: incomingOrder.notes || ""
+        }).then((savedDbOrder) => {
+          console.log(`[Captive Portal Order Event] Successfully saved order to Supabase DB:`, savedDbOrder);
+          loadSupabaseData();
+        }).catch((err) => {
+          console.error(`[Captive Portal Order Event Error] Failed to save order to Supabase:`, err);
+        });
+      }
+    }
+
     if (type === "TABLE_CHECKIN" || type === "TABLE_ASSIGNED") {
       const targetTable = resolveTable(payload.tableId, tables);
       const custPhone = payload.customerPhone || "";
@@ -266,27 +289,12 @@ export const RestoProvider = ({ children }) => {
         prev.map((t) => {
           const match = targetTable ? t.id === targetTable.id : t.id === payload.tableId;
           if (match) {
-            updateRestaurantTableStatus(t.id, "occupied");
             return {
               ...t,
-              status: "occupied",
               guests: t.guests > 0 ? t.guests : 2,
               seatedTime: t.seatedTime || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
               customerName: custName,
               customerPhone: custPhone,
-            };
-          }
-          if (custPhone && t.customerPhone === custPhone) {
-            updateRestaurantTableStatus(t.id, "vacant");
-            return {
-              ...t,
-              status: "vacant",
-              guests: 0,
-              seatedTime: null,
-              orderId: null,
-              activeOrderTotal: 0,
-              customerName: null,
-              customerPhone: null,
             };
           }
           return t;
