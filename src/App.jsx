@@ -4,7 +4,6 @@ import { Navbar } from "./components/Navbar";
 import { TableMap } from "./components/TableMap/TableMap";
 import { LiveOrders } from "./components/LiveOrders/LiveOrders";
 import { KitchenDisplaySystem } from "./components/KDS/KitchenDisplaySystem";
-import { CustomerAppContainer } from "./components/CustomerApp/CustomerAppContainer";
 import { BillingStation } from "./components/Billing/BillingStation";
 import { MenuManager } from "./components/MenuManager/MenuManager";
 import { RevenueAnalytics } from "./components/Analytics/RevenueAnalytics";
@@ -22,7 +21,6 @@ const MainContent = () => {
       {activeTab === "table_map" && <TableMap />}
       {activeTab === "live_orders" && <LiveOrders />}
       {activeTab === "kds" && <KitchenDisplaySystem />}
-      {activeTab === "customer_app" && <CustomerAppContainer />}
       {activeTab === "captive_portal" && <CaptivePortalView />}
       {activeTab === "billing" && <BillingStation />}
       {activeTab === "menu_manager" && <MenuManager />}
