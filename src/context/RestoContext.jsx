@@ -302,29 +302,22 @@ export const RestoProvider = ({ children }) => {
       );
     }
 
-    if (type === "TABLE_VACATE") {
+    if (type === "TABLE_VACATE" || type === "TABLE_LOGOUT") {
       const targetTable = resolveTable(payload.tableId, tables);
+      const targetId = targetTable ? targetTable.id : payload.tableId;
 
-      setTables((prev) =>
-        prev.map((t) => {
-          const matchTable = targetTable ? t.id === targetTable.id : t.id === payload.tableId;
+      if (targetId) {
+        console.log(`[Logout Cleaning Transition] Table ${targetTable?.number || targetId} logged out. Setting status to 'needs_cleaning' for 30 seconds.`);
+        
+        // 1. Set status to 'needs_cleaning' immediately in Supabase DB and local state
+        updateTableStatus(targetId, "needs_cleaning");
 
-          if (matchTable) {
-            updateRestaurantTableStatus(t.id, "vacant");
-            return {
-              ...t,
-              status: "vacant",
-              guests: 0,
-              seatedTime: null,
-              orderId: null,
-              activeOrderTotal: 0,
-              customerName: null,
-              customerPhone: null,
-            };
-          }
-          return t;
-        })
-      );
+        // 2. Set 30-second timer to transition status to 'vacant'
+        setTimeout(() => {
+          console.log(`[Logout Cleaning Transition Complete] 30s elapsed for Table ${targetTable?.number || targetId}. Setting status to 'vacant'.`);
+          updateTableStatus(targetId, "vacant");
+        }, 30000);
+      }
     }
   }, [resolveTable, tables]);
 

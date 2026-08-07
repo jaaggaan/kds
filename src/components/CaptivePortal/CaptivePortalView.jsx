@@ -13,6 +13,14 @@ export const CaptivePortalView = () => {
 
   const handleLogoutPortal = () => {
     if (window.confirm("Disconnect Wi-Fi and return to check-in screen?")) {
+      try {
+        localStorage.setItem("truffles_last_event", JSON.stringify({
+          type: "TABLE_LOGOUT",
+          tableId: selectedTableId,
+          timestamp: Date.now()
+        }));
+      } catch {}
+
       setCart([]);
       setStep("connect");
     }
