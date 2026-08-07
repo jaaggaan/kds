@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { useResto } from "../../context/RestoContext";
-import { Wifi, Smartphone, Utensils, Check, ShoppingBag, Plus, Minus, ArrowRight, User } from "lucide-react";
+import { Wifi, Smartphone, Utensils, Check, ShoppingBag, Plus, Minus, ArrowRight, User, LogOut } from "lucide-react";
 
 export const CaptivePortalView = () => {
   const { menuItems, categories, createOrder, tables } = useResto();
@@ -10,6 +10,13 @@ export const CaptivePortalView = () => {
   const [guestName, setGuestName] = useState("");
   const [phone, setPhone] = useState("");
   const [selectedTableId, setSelectedTableId] = useState("T1");
+
+  const handleLogoutPortal = () => {
+    if (window.confirm("Disconnect Wi-Fi and return to check-in screen?")) {
+      setCart([]);
+      setStep("connect");
+    }
+  };
 
   // Menu & Cart
   const [activeCategory, setActiveCategory] = useState("all");
@@ -163,12 +170,33 @@ export const CaptivePortalView = () => {
           {/* STEP 2: Digital Self-Ordering Menu */}
           {step === "menu" && (
             <div className="digital-menu-view fade-in">
-              <div className="menu-header-bar">
+              <div className="menu-header-bar" style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <div className="guest-welcome">
                   <span className="caption-text">Connected to TRUFFLES Wi-Fi</span>
                   <h3>Hello, {guestName} 👋</h3>
                   <small style={{ color: "#FF6B35" }}>Table {selectedTableId}</small>
                 </div>
+
+                <button
+                  onClick={handleLogoutPortal}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "6px",
+                    padding: "6px 12px",
+                    fontSize: "12px",
+                    borderRadius: "20px",
+                    background: "rgba(239, 68, 68, 0.12)",
+                    color: "#EF4444",
+                    border: "1px solid rgba(239, 68, 68, 0.3)",
+                    cursor: "pointer",
+                    fontWeight: 600
+                  }}
+                  title="Logout / Disconnect"
+                >
+                  <LogOut size={14} />
+                  <span>Logout</span>
+                </button>
               </div>
 
               <div className="portal-cat-pills">

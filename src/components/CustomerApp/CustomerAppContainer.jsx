@@ -21,7 +21,8 @@ import {
   Flame,
   Camera,
   Check,
-  AlertTriangle
+  AlertTriangle,
+  LogOut
 } from "lucide-react";
 
 export const CustomerAppContainer = () => {
@@ -189,6 +190,14 @@ export const CustomerAppContainer = () => {
     }, 1500);
   };
 
+  const handleLogoutGuest = () => {
+    if (window.confirm("Are you sure you want to disconnect Wi-Fi & log out of Table Session?")) {
+      localStorage.removeItem("truffles_guest_table");
+      setCart([]);
+      setScreen("portal");
+    }
+  };
+
   return (
     <div className="customer-app-wrapper fade-in">
       {/* SCREEN 1: CAPTIVE PORTAL */}
@@ -290,6 +299,29 @@ export const CustomerAppContainer = () => {
               >
                 Browse Digital Menu <ArrowRight size={16} />
               </button>
+              
+              <button
+                onClick={handleLogoutGuest}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  gap: "6px",
+                  padding: "10px 16px",
+                  fontSize: "13px",
+                  borderRadius: "8px",
+                  background: "rgba(239, 68, 68, 0.12)",
+                  color: "#EF4444",
+                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                  cursor: "pointer",
+                  fontWeight: 600,
+                  width: "100%",
+                  marginTop: "8px"
+                }}
+              >
+                <LogOut size={15} />
+                <span>Disconnect Wi-Fi / Change Table</span>
+              </button>
             </div>
           </div>
         </div>
@@ -305,13 +337,36 @@ export const CustomerAppContainer = () => {
               <span className="caption-text">Table {selectedTable} • Koramangala</span>
             </div>
 
-            <button
-              className="cart-icon-btn"
-              onClick={() => setShowCartDrawer(true)}
-            >
-              <ShoppingBag size={22} color="#FF6B35" />
-              {cart.length > 0 && <span className="cart-badge-count">{cart.length}</span>}
-            </button>
+            <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+              <button
+                className="cart-icon-btn"
+                onClick={() => setShowCartDrawer(true)}
+              >
+                <ShoppingBag size={22} color="#FF6B35" />
+                {cart.length > 0 && <span className="cart-badge-count">{cart.length}</span>}
+              </button>
+
+              <button
+                onClick={handleLogoutGuest}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "6px",
+                  padding: "6px 12px",
+                  fontSize: "12px",
+                  borderRadius: "20px",
+                  background: "rgba(239, 68, 68, 0.12)",
+                  color: "#EF4444",
+                  border: "1px solid rgba(239, 68, 68, 0.3)",
+                  cursor: "pointer",
+                  fontWeight: 600
+                }}
+                title="Logout / Disconnect"
+              >
+                <LogOut size={14} />
+                <span>Logout</span>
+              </button>
+            </div>
           </div>
 
           {/* Search & Filter Bar */}

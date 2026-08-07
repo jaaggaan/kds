@@ -12,7 +12,8 @@ import {
   Smartphone,
   QrCode,
   Cpu,
-  UserCheck
+  UserCheck,
+  LogOut
 } from "lucide-react";
 
 export const Navbar = () => {
@@ -49,6 +50,14 @@ export const Navbar = () => {
     month: "short",
     day: "numeric"
   });
+
+  const handleLogout = () => {
+    if (window.confirm("Are you sure you want to log out of TRUFFLES POS / Portal session?")) {
+      localStorage.removeItem("truffles_guest_table");
+      localStorage.removeItem("truffles_checkin_events");
+      setActiveTab("customer_app");
+    }
+  };
 
   return (
     <header className="app-header">
@@ -176,6 +185,28 @@ export const Navbar = () => {
             <span className="date caption-text">{formattedDate}</span>
           </div>
         </div>
+
+        <button
+          className="btn-secondary"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            padding: "6px 12px",
+            fontSize: "12px",
+            borderRadius: "8px",
+            background: "rgba(220, 38, 38, 0.1)",
+            color: "#EF4444",
+            border: "1px solid rgba(239, 68, 68, 0.3)",
+            cursor: "pointer",
+            fontWeight: 600
+          }}
+          onClick={handleLogout}
+          title="Logout / Reset Session"
+        >
+          <LogOut size={14} />
+          <span>Logout</span>
+        </button>
       </div>
     </header>
   );
