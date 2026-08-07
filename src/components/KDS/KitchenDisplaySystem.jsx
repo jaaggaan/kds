@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useResto } from "../../context/RestoContext";
 import { ChefHat, Clock, Flame, CheckCircle, Wifi, AlertTriangle } from "lucide-react";
 
@@ -6,6 +6,29 @@ export const KitchenDisplaySystem = () => {
   const { activeOrders, updateOrderStatus, paidTransactions } = useResto();
   const [filter, setFilter] = useState("all"); // all | preparing | ready | served
   const [timers, setTimers] = useState({});
+
+  const previousOrderCount = useRef(activeOrders.length);
+
+  // Trigger Audio Chime on New Order arrival
+  useEffect(() => {
+    if (activeOrders.length > previousOrderCount.current) {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(587.33, ctx.currentTime);
+        osc.frequency.setValueAtTime(880, ctx.currentTime + 0.15);
+        gain.gain.setValueAtTime(0.3, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.5);
+      } catch (e) {}
+    }
+    previousOrderCount.current = activeOrders.length;
+  }, [activeOrders]);
 
   // Active KDS orders
   const kdsOrders = activeOrders.map((o) => {

@@ -25,10 +25,17 @@ export const BillingStation = () => {
     currentBranch
   } = useResto();
 
-  // Find occupied or awaiting payment tables
-  const billableTables = tables.filter(
-    (t) => t.status === "occupied" || t.status === "awaiting_payment"
-  );
+  // Find occupied, awaiting payment, or active-order tables
+  const billableTables = tables.filter((t) => {
+    const hasOrder = activeOrders.some(
+      (o) =>
+        (o.tableId === t.id ||
+         o.tableId === `T${t.number}` ||
+         parseInt(String(o.tableId).replace(/\D/g, ""), 10) === t.number) &&
+        o.status !== "Cancelled"
+    );
+    return t.status === "occupied" || t.status === "awaiting_payment" || hasOrder;
+  });
 
   const [activeTableId, setActiveTableId] = useState(
     selectedTableForBilling || (billableTables[0] ? billableTables[0].id : "T1")
@@ -40,9 +47,19 @@ export const BillingStation = () => {
     }
   }, [selectedTableForBilling]);
 
-  const activeTable = tables.find((t) => t.id === activeTableId);
+  const activeTable = tables.find(
+    (t) => t.id === activeTableId || t.number === parseInt(String(activeTableId).replace(/\D/g, ""), 10)
+  );
+  const activeTableNum = activeTable ? activeTable.number : parseInt(String(activeTableId).replace(/\D/g, ""), 10);
+  const activeTableUuid = activeTable ? activeTable.id : activeTableId;
+
   const activeOrder = activeOrders.find(
-    (o) => o.tableId === activeTableId && o.status !== "Cancelled"
+    (o) =>
+      (o.tableId === activeTableId ||
+       o.tableId === activeTableUuid ||
+       o.tableId === `T${activeTableNum}` ||
+       parseInt(String(o.tableId).replace(/\D/g, ""), 10) === activeTableNum) &&
+      o.status !== "Cancelled"
   );
 
   // Discount states
