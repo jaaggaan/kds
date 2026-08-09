@@ -118,10 +118,10 @@ export const BillingStation = () => {
   // Per person split amount
   const splitAmountPerPerson = Math.ceil(grandTotal / Math.max(1, splitCount));
 
-  const handleMarkPaid = () => {
+  const handleMarkPaid = async () => {
     if (!activeOrder) return;
 
-    payOrder(activeOrder.id, {
+    await payOrder(activeOrder.id, {
       grandTotal,
       method: paymentMethod.toUpperCase(),
       discount: discountAmount,
@@ -129,7 +129,7 @@ export const BillingStation = () => {
       serviceCharge: serviceChargeAmount
     });
 
-    alert(`Order ${activeOrder.id} marked as PAID via ${paymentMethod.toUpperCase()}! Table ${activeTable.id} is now Vacant.`);
+    setShowPrintModal(true);
   };
 
   const billDataForPrint = activeOrder

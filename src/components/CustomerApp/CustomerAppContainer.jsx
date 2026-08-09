@@ -33,6 +33,7 @@ export const CustomerAppContainer = () => {
     tables,
     activeOrders,
     updateOrderStatus,
+    updateTableStatus,
     submitCustomerFeedback
   } = useResto();
 
@@ -204,9 +205,14 @@ export const CustomerAppContainer = () => {
     }, 1500);
   };
 
-  const handleLogoutGuest = () => {
+  const handleLogoutGuest = async () => {
     if (window.confirm("Are you sure you want to disconnect Wi-Fi & log out of Table Session?")) {
+      if (selectedTable) {
+        await updateTableStatus(selectedTable, "needs_cleaning");
+      }
       localStorage.removeItem("truffles_guest_table");
+      localStorage.removeItem("truffles_customer_session");
+      localStorage.removeItem("truffles_active_table");
       setCart([]);
       setScreen("portal");
     }
