@@ -191,6 +191,13 @@ export const CustomerAppContainer = () => {
     setPaymentSuccess(true);
     setTimeout(() => {
       if (trackedOrder) {
+        payOrder(trackedOrder.id, {
+          grandTotal,
+          method: payMethod.toUpperCase(),
+          discount: 0,
+          tax: cgst + sgst,
+          serviceCharge: serviceCharge
+        });
         updateOrderStatus(trackedOrder.id, "Paid");
       }
       setScreen("feedback");

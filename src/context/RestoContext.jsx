@@ -685,16 +685,23 @@ export const RestoProvider = ({ children }) => {
   };
 
   const updateOrderStatus = async (orderId, newStatus) => {
+    const isPaidStatus = newStatus === "Paid" || newStatus === "Completed";
     setActiveOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
+      isPaidStatus
+        ? prev.filter((o) => o.id !== orderId)
+        : prev.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o))
     );
 
-    // Sync to Supabase DB
+    // Sync to Supabase DB (sets payment_status = 'Paid' and order_status = 'Completed')
     await updateOrderStatusInDb(orderId, newStatus);
 
     const targetOrder = activeOrders.find((o) => o.id === orderId);
-    if (targetOrder && newStatus === "Payment Pending") {
-      updateTableStatus(targetOrder.tableId, "awaiting_payment");
+    if (targetOrder) {
+      if (newStatus === "Payment Pending") {
+        updateTableStatus(targetOrder.tableId, "awaiting_payment");
+      } else if (isPaidStatus) {
+        updateTableStatus(targetOrder.tableId, "needs_cleaning");
+      }
     }
 
     broadcast({ type: "UPDATE_ORDER_STATUS", orderId, newStatus });

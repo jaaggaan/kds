@@ -580,9 +580,15 @@ export const createOrderInDb = async ({
 export const updateOrderStatusInDb = async (orderId, orderStatus) => {
   try {
     if (!isUUID(orderId)) return null;
+    const payload = { order_status: orderStatus };
+    if (orderStatus === "Paid" || orderStatus === "Completed") {
+      payload.payment_status = "Paid";
+      payload.order_status = "Completed";
+    }
+
     const { data, error } = await supabase
       .from("orders")
-      .update({ order_status: orderStatus })
+      .update(payload)
       .eq("id", orderId)
       .select();
 
