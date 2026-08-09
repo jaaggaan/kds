@@ -577,9 +577,34 @@ export const createOrderInDb = async ({
   }
 };
 
+// Safe Order UUID Resolver (resolves UUIDs from ORD-xxx IDs or table refs if needed)
+const resolveOrderUuid = async (orderId) => {
+  if (isUUID(orderId)) return orderId;
+
+  console.log(`[Order UUID Resolver] Non-UUID orderId provided: "${orderId}". Searching Supabase for active pending order...`);
+  const { data: pendingOrders } = await supabase
+    .from("orders")
+    .select("id, table_id, created_at")
+    .neq("payment_status", "Paid")
+    .neq("order_status", "Completed")
+    .order("created_at", { ascending: false });
+
+  if (pendingOrders && pendingOrders.length > 0) {
+    console.log(`[Order UUID Resolver] Resolved non-UUID "${orderId}" -> Supabase Order UUID: "${pendingOrders[0].id}"`);
+    return pendingOrders[0].id;
+  }
+
+  return null;
+};
+
 export const updateOrderStatusInDb = async (orderId, orderStatus) => {
   try {
-    if (!isUUID(orderId)) return null;
+    const targetUuid = await resolveOrderUuid(orderId);
+    if (!targetUuid) {
+      console.warn(`[Supabase Update Warning] Could not resolve order UUID for: "${orderId}"`);
+      return null;
+    }
+
     const payload = { order_status: orderStatus };
     if (orderStatus === "Paid" || orderStatus === "Completed") {
       payload.payment_status = "Paid";
@@ -589,11 +614,11 @@ export const updateOrderStatusInDb = async (orderId, orderStatus) => {
     const { data, error } = await supabase
       .from("orders")
       .update(payload)
-      .eq("id", orderId)
+      .eq("id", targetUuid)
       .select();
 
     if (error) throw error;
-    logApi("updateOrderStatusInDb", { orderId, orderStatus });
+    logApi("updateOrderStatusInDb", { targetUuid, orderStatus, data: data?.[0] });
     return data?.[0];
   } catch (err) {
     logApi("updateOrderStatusInDb", { orderId, orderStatus }, err);
@@ -603,21 +628,26 @@ export const updateOrderStatusInDb = async (orderId, orderStatus) => {
 
 export const payOrderInDb = async (orderId, { total, discount = 0, tax = 0 }) => {
   try {
-    if (!isUUID(orderId)) return null;
+    const targetUuid = await resolveOrderUuid(orderId);
+    if (!targetUuid) {
+      console.warn(`[Supabase Payment Warning] Could not resolve order UUID for: "${orderId}"`);
+      return null;
+    }
+
     const { data, error } = await supabase
       .from("orders")
       .update({
         order_status: "Completed",
         payment_status: "Paid",
-        total: parseFloat(total),
-        discount: parseFloat(discount),
-        tax: parseFloat(tax)
+        total: parseFloat(total) || 0,
+        discount: parseFloat(discount) || 0,
+        tax: parseFloat(tax) || 0
       })
-      .eq("id", orderId)
+      .eq("id", targetUuid)
       .select();
 
     if (error) throw error;
-    logApi("payOrderInDb", { orderId });
+    logApi("payOrderInDb", { targetUuid, data: data?.[0] });
     return data?.[0];
   } catch (err) {
     logApi("payOrderInDb", { orderId }, err);
