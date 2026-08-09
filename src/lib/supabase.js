@@ -446,7 +446,7 @@ export const fetchOrders = async () => {
   try {
     const { data: ordersData, error: ordersErr } = await supabase
       .from("orders")
-      .select("*, order_items(*, menu_items(*))")
+      .select("*, order_items(*, menu_items(*)), restaurant_tables(*)")
       .order("created_at", { ascending: false });
 
     if (ordersErr) throw ordersErr;
@@ -458,7 +458,16 @@ export const fetchOrders = async () => {
   }
 };
 
-export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => {
+export const createOrderInDb = async ({
+  tableId,
+  items,
+  total,
+  notes = "",
+  customerName = "Guest",
+  customerPhone = "",
+  customer_name = "Guest",
+  customer_phone = ""
+}) => {
   try {
     // 1. Resolve table UUID safely without regex digit stripping on UUIDs
     let dbTableUuid = isUUID(tableId) ? tableId : null;
@@ -493,8 +502,13 @@ export const createOrderInDb = async ({ tableId, items, total, notes = "" }) => 
 
     console.log(`[Supabase Table Audit] Input tableId: "${tableId}" -> Table #${tableNumberFound} -> Resolved DB UUID: "${dbTableUuid}"`);
 
+    const finalCustomerName = customerName && customerName !== "Guest" ? customerName : (customer_name || "Guest");
+    const finalCustomerPhone = customerPhone || customer_phone || "";
+
     const orderPayload = {
       table_id: dbTableUuid,
+      customer_name: finalCustomerName,
+      customer_phone: finalCustomerPhone,
       order_status: "New",
       total: parseFloat(total) || 0,
       discount: 0,

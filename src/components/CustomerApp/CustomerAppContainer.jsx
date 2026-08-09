@@ -37,8 +37,13 @@ export const CustomerAppContainer = () => {
   } = useResto();
 
   // Navigation sub-screens for Customer App:
-  // 1: portal, 2: table_confirm, 3: menu, 4: tracking, 5: bill_pay, 6: feedback
+  // 1: portal, 2: otp_verify, 3: table_confirm, 4: menu, 5: tracking, 6: bill_pay, 7: feedback
   const [screen, setScreen] = useState("portal");
+  const [customerName, setCustomerName] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [otpDigits, setOtpDigits] = useState(["1", "2", "3", "4"]);
+  const [otpError, setOtpError] = useState("");
+
   const [selectedTable, setSelectedTable] = useState(() => {
     return localStorage.getItem("truffles_guest_table") || "T5";
   });
@@ -144,7 +149,9 @@ export const CustomerAppContainer = () => {
       tableId: selectedTable,
       items: orderItems,
       guests: 2,
-      notes: cart.map((c) => c.notes).filter(Boolean).join("; ")
+      notes: cart.map((c) => c.notes).filter(Boolean).join("; "),
+      customerName: customerName || "Guest",
+      customerPhone: customerPhone || ""
     });
 
     setActiveOrderId(newOrdId);
@@ -200,52 +207,142 @@ export const CustomerAppContainer = () => {
 
   return (
     <div className="customer-app-wrapper fade-in">
-      {/* SCREEN 1: CAPTIVE PORTAL */}
+      {/* SCREEN 1: CAPTIVE PORTAL CHECK-IN */}
       {screen === "portal" && (
         <div className="customer-screen-card portal-splash">
           <div className="splash-content">
             <h1 className="brand-truffles-title" style={{ fontSize: "32px" }}>TRUFFLES</h1>
-            <p className="brand-truffles-tagline">ORDER. EAT. REPEAT.</p>
+            <p className="brand-truffles-tagline">FREE HIGH-SPEED WI-FI</p>
 
             <div className="wifi-hero-icon">
               <Wifi size={48} color="#FF6B35" />
             </div>
 
-            <h2>Welcome to Truffles</h2>
+            <h2>Wi-Fi Captive Portal Check-in</h2>
             <p className="body-text" style={{ textAlign: "center" }}>
-              Connect to <strong>Truffles-Free-WiFi</strong> to order directly from your table with zero waiting time.
+              Enter your details to receive an OTP and connect to <strong>Truffles-Free-WiFi</strong>.
             </p>
 
-            <div className="form-group" style={{ width: "100%", marginTop: "16px" }}>
-              <label className="caption-text">Select Your Table Number:</label>
-              <select
-                value={selectedTable}
-                onChange={(e) => setSelectedTable(e.target.value)}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!customerName || !customerPhone) {
+                  alert("Please enter your name and phone number.");
+                  return;
+                }
+                setScreen("otp_verify");
+              }}
+              style={{ width: "100%", display: "flex", flexDirection: "column", gap: "12px", marginTop: "12px" }}
+            >
+              <div className="form-group" style={{ textAlign: "left" }}>
+                <label className="caption-text">Your Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="e.g. Alex Johnson"
+                  value={customerName}
+                  onChange={(e) => setCustomerName(e.target.value)}
+                />
+              </div>
+
+              <div className="form-group" style={{ textAlign: "left" }}>
+                <label className="caption-text">Mobile Phone Number *</label>
+                <input
+                  type="tel"
+                  required
+                  placeholder="+91 98765 43210"
+                  value={customerPhone}
+                  onChange={(e) => setCustomerPhone(e.target.value)}
+                />
+              </div>
+
+              <label className="checkbox-container" style={{ fontSize: "12px", color: "#B0B0C0" }}>
+                <input
+                  type="checkbox"
+                  checked={agreedTerms}
+                  onChange={(e) => setAgreedTerms(e.target.checked)}
+                />
+                <span>I agree to Wi-Fi Terms of Service & Privacy Policy</span>
+              </label>
+
+              <button
+                type="submit"
+                className="btn-primary"
+                style={{ width: "100%", marginTop: "8px" }}
+                disabled={!agreedTerms}
               >
-                {tables.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    Table {t.number}
-                  </option>
-                ))}
-              </select>
+                Send OTP to Connect <ArrowRight size={16} />
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SCREEN 2: ENTER OTP VERIFICATION */}
+      {screen === "otp_verify" && (
+        <div className="customer-screen-card portal-splash">
+          <div className="splash-content">
+            <div className="wifi-hero-icon" style={{ background: "rgba(126, 231, 135, 0.15)", border: "1px solid rgba(126, 231, 135, 0.4)" }}>
+              <CheckCircle size={44} color="#7EE787" />
             </div>
 
-            <label className="checkbox-container" style={{ fontSize: "12px", color: "#B0B0C0" }}>
-              <input
-                type="checkbox"
-                checked={agreedTerms}
-                onChange={(e) => setAgreedTerms(e.target.checked)}
-              />
-              <span>I agree to Wi-Fi Terms of Service & Privacy Policy</span>
-            </label>
+            <h2>Enter 4-Digit OTP</h2>
+            <p className="body-text" style={{ textAlign: "center", fontSize: "13px" }}>
+              We sent a 4-digit verification code to <strong>{customerPhone || "+91 98765 43210"}</strong>.
+            </p>
+
+            {otpError && <p style={{ color: "#FF4D4D", fontSize: "12px" }}>{otpError}</p>}
+
+            <div style={{ display: "flex", gap: "10px", margin: "20px 0" }}>
+              {otpDigits.map((digit, idx) => (
+                <input
+                  key={idx}
+                  type="text"
+                  maxLength={1}
+                  value={digit}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const next = [...otpDigits];
+                    next[idx] = val;
+                    setOtpDigits(next);
+                  }}
+                  style={{
+                    width: "48px",
+                    height: "54px",
+                    textAlign: "center",
+                    fontSize: "22px",
+                    fontWeight: "bold",
+                    borderRadius: "10px",
+                    border: "2px solid #FF6B35",
+                    background: "#12121E",
+                    color: "#FFFFFF"
+                  }}
+                />
+              ))}
+            </div>
 
             <button
               className="btn-primary"
-              style={{ width: "100%", marginTop: "12px" }}
-              disabled={!agreedTerms}
-              onClick={() => setScreen("table_confirm")}
+              style={{ width: "100%" }}
+              onClick={() => {
+                const code = otpDigits.join("");
+                if (code.length < 4) {
+                  setOtpError("Please enter complete 4-digit OTP.");
+                  return;
+                }
+                setOtpError("");
+                setScreen("table_confirm");
+              }}
             >
-              Start Ordering <ArrowRight size={16} />
+              Verify OTP & Select Table <ArrowRight size={16} />
+            </button>
+
+            <button
+              className="btn-secondary"
+              style={{ width: "100%", marginTop: "8px", fontSize: "12px" }}
+              onClick={() => setScreen("portal")}
+            >
+              Resend OTP / Change Details
             </button>
           </div>
         </div>
@@ -261,6 +358,20 @@ export const CustomerAppContainer = () => {
             </div>
 
             <h2>You are at Table {selectedTable} — Koramangala Branch</h2>
+
+            <div className="form-group" style={{ width: "100%", margin: "12px 0", textAlign: "left" }}>
+              <label className="caption-text">Select / Change Your Table Number:</label>
+              <select
+                value={selectedTable}
+                onChange={(e) => setSelectedTable(e.target.value)}
+              >
+                {tables.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    Table {t.number} ({t.status.toUpperCase()})
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {existingOrderForTable ? (
               <div className="warning-callout">

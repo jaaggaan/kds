@@ -27,11 +27,38 @@ import {
   subscribeToRealtimeChanges
 } from "../lib/supabase";
 
+const isUUID = (str) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || ""));
+
 const RestoContext = createContext(null);
 
 export const RestoProvider = ({ children }) => {
   const [currentBranch, setCurrentBranch] = useState(INITIAL_BRANCHES[0]);
-  const [activeTab, setActiveTab] = useState("table_map");
+  const [activeTab, setActiveTab] = useState(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const tabParam = params.get("tab");
+      if (tabParam) return tabParam;
+
+      const port = window.location.port;
+      if (port === "3000") return "customer_app";
+      if (port === "3001") return "table_map";
+      if (port === "3002") return "kds";
+
+      return "table_map";
+    } catch (e) {
+      return "table_map";
+    }
+  });
+
+  // Sync activeTab to URL search params on change
+  const handleSetActiveTab = (tab) => {
+    setActiveTab(tab);
+    try {
+      const url = new URL(window.location);
+      url.searchParams.set("tab", tab);
+      window.history.pushState({}, "", url);
+    } catch (e) {}
+  };
   const [selectedTableForBilling, setSelectedTableForBilling] = useState(null);
 
   const [tables, setTables] = useState(INITIAL_TABLES);
@@ -114,17 +141,30 @@ export const RestoProvider = ({ children }) => {
     const foundTable = resolveTable(dbOrder.table_id, tables);
     const displayTableId = foundTable ? `T${foundTable.number}` : dbOrder.table_id || "T1";
 
+    const custName = dbOrder.customer_name || dbOrder.customerName || "Guest";
+    const custPhone = dbOrder.customer_phone || dbOrder.customerPhone || "";
+
     return {
       id: dbOrder.id,
       tableId: displayTableId,
-      customerName: "Customer",
-      customerPhone: "",
+      table_id: dbOrder.table_id || displayTableId,
+      customerName: custName,
+      customerPhone: custPhone,
+      customer_name: custName,
+      customer_phone: custPhone,
       status: dbOrder.order_status || "New",
+      order_status: dbOrder.order_status || "New",
+      payment_status: dbOrder.payment_status || "Pending",
       createdAt: dbOrder.created_at || new Date().toISOString(),
+      created_at: dbOrder.created_at || new Date().toISOString(),
       priority: "normal",
       items,
+      order_items: dbOrder.order_items || [],
       notes: "",
-      totalAmount: parseFloat(dbOrder.total) || 0
+      totalAmount: parseFloat(dbOrder.total) || 0,
+      total: parseFloat(dbOrder.total) || 0,
+      discount: parseFloat(dbOrder.discount) || 0,
+      tax: parseFloat(dbOrder.tax) || 0
     };
   };
 
@@ -475,7 +515,9 @@ export const RestoProvider = ({ children }) => {
           tableId: dbTableId,
           items: incomingOrder.items,
           total: incomingOrder.totalAmount || incomingOrder.total || 0,
-          notes: incomingOrder.notes || ""
+          notes: incomingOrder.notes || "",
+          customerName: payload.customer_name || payload.customerName || incomingOrder.customer_name || incomingOrder.customerName || "Guest",
+          customerPhone: payload.customer_phone || payload.customerPhone || incomingOrder.customer_phone || incomingOrder.customerPhone || ""
         }).then((savedDbOrder) => {
           console.log(`[Captive Portal Order Event] Successfully saved order to Supabase DB:`, savedDbOrder);
           loadSupabaseData();
@@ -574,17 +616,36 @@ export const RestoProvider = ({ children }) => {
     } catch {}
   };
 
-  const createOrder = async ({ tableId, items, guests = 2, notes = "" }) => {
+  const createOrder = async ({
+    tableId,
+    items,
+    guests = 2,
+    notes = "",
+    customerName = "Guest",
+    customerPhone = "",
+    customer_name = "Guest",
+    customer_phone = ""
+  }) => {
     const totalAmount = items.reduce((s, i) => s + i.price * i.qty, 0);
 
     const foundTable = resolveTable(tableId, tables);
     const dbTableId = foundTable ? foundTable.id : tableId;
     const displayTableId = foundTable ? `T${foundTable.number}` : (String(tableId).startsWith("T") ? tableId : `T${tableId}`);
 
-    console.log(`[Table Trace Log] Selected UI tableId: "${tableId}" -> Found Table #${foundTable?.number} -> DB UUID: "${dbTableId}" -> Display: "${displayTableId}"`);
+    const finalCustName = customerName && customerName !== "Guest" ? customerName : (customer_name || "Guest");
+    const finalCustPhone = customerPhone || customer_phone || "";
+
+    console.log(`[Table Trace Log] Selected UI tableId: "${tableId}" -> Found Table #${foundTable?.number} -> DB UUID: "${dbTableId}" -> Display: "${displayTableId}" | Customer: ${finalCustName}`);
 
     // Save to Supabase DB as the ONLY source of truth
-    const dbOrder = await createOrderInDb({ tableId: dbTableId, items, total: totalAmount, notes });
+    const dbOrder = await createOrderInDb({
+      tableId: dbTableId,
+      items,
+      total: totalAmount,
+      notes,
+      customerName: finalCustName,
+      customerPhone: finalCustPhone
+    });
 
     // Synchronize data model directly from Supabase DB
     await loadSupabaseData();
@@ -593,17 +654,33 @@ export const RestoProvider = ({ children }) => {
     const newOrderPayload = {
       id: newOrderId,
       tableId: displayTableId,
-      customerName: "Customer",
-      customerPhone: "",
+      table_id: dbTableId,
+      customerName: finalCustName,
+      customerPhone: finalCustPhone,
+      customer_name: finalCustName,
+      customer_phone: finalCustPhone,
       status: "New",
+      order_status: "New",
+      payment_status: "Pending",
       createdAt: new Date().toISOString(),
       priority: "normal",
       items,
       notes,
-      totalAmount
+      totalAmount,
+      total: totalAmount,
+      discount: 0,
+      tax: 0
     };
 
-    broadcast({ type: "NEW_ORDER", order: newOrderPayload, tableId: displayTableId });
+    broadcast({
+      type: "NEW_ORDER",
+      order: newOrderPayload,
+      table_id: dbTableId,
+      tableId: displayTableId,
+      customer_name: finalCustName,
+      customer_phone: finalCustPhone,
+      timestamp: Date.now()
+    });
     return newOrderId;
   };
 
@@ -749,7 +826,7 @@ export const RestoProvider = ({ children }) => {
         currentBranch,
         setCurrentBranch,
         activeTab,
-        setActiveTab,
+        setActiveTab: handleSetActiveTab,
         tables,
         categories,
         menuItems,

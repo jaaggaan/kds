@@ -159,7 +159,7 @@ export const KitchenDisplaySystem = () => {
                       <span>{o.kdsStatus.toUpperCase()}</span>
                     </div>
                     <div className="kds-table-num">
-                      <small>TABLE</small>
+                      <small>{(o.customer_name || o.customerName || "Guest").toUpperCase()}</small>
                       <span>{o.tableId}</span>
                     </div>
                   </div>

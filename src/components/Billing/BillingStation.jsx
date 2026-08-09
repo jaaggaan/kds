@@ -87,10 +87,12 @@ export const BillingStation = () => {
   // Print modal trigger
   const [showPrintModal, setShowPrintModal] = useState(false);
 
-  // Financial Calculations
-  const subtotal = activeOrder
-    ? activeOrder.items.reduce((sum, item) => sum + item.price * item.qty, 0)
-    : 0;
+  // Financial Calculations - Dynamically derived from underlying line items
+  const activeLineItems = activeOrder ? (activeOrder.items || activeOrder.order_items || []) : [];
+  const subtotal = activeLineItems.reduce(
+    (sum, item) => sum + (Number(item.price) || 0) * (Number(item.qty || item.quantity) || 1),
+    0
+  );
 
   let discountAmount = 0;
   if (discountType === "percent") {

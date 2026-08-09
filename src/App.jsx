@@ -11,34 +11,52 @@ import { StaffManagement } from "./components/Dashboard/StaffManagement";
 import { QRCodeGenerator } from "./components/Tools/QRCodeGenerator";
 import { ESP32FirmwareView } from "./components/Tools/ESP32FirmwareView";
 import { CaptivePortalView } from "./components/CaptivePortal/CaptivePortalView";
+import { CustomerAppContainer } from "./components/CustomerApp/CustomerAppContainer";
 import "./App.css";
 
-const MainContent = () => {
+const AppShell = () => {
   const { activeTab } = useResto();
 
+  // 1. Standalone Customer App / Captive Portal (No POS Navbar)
+  if (activeTab === "captive_portal" || activeTab === "customer_app") {
+    return (
+      <div className="standalone-viewport">
+        <CustomerAppContainer />
+      </div>
+    );
+  }
+
+  // 2. Standalone Kitchen KDS Display (No POS Navbar)
+  if (activeTab === "kds") {
+    return (
+      <div className="standalone-viewport" style={{ height: "100vh", overflow: "hidden" }}>
+        <KitchenDisplaySystem />
+      </div>
+    );
+  }
+
+  // 3. Kitchen POS & Admin Dashboard Shell (With Navbar)
   return (
-    <main className="main-viewport">
-      {activeTab === "table_map" && <TableMap />}
-      {activeTab === "live_orders" && <LiveOrders />}
-      {activeTab === "kds" && <KitchenDisplaySystem />}
-      {activeTab === "captive_portal" && <CaptivePortalView />}
-      {activeTab === "billing" && <BillingStation />}
-      {activeTab === "menu_manager" && <MenuManager />}
-      {activeTab === "analytics" && <RevenueAnalytics />}
-      {activeTab === "staff" && <StaffManagement />}
-      {activeTab === "qr_generator" && <QRCodeGenerator />}
-      {activeTab === "esp32" && <ESP32FirmwareView />}
-    </main>
+    <div className="app-shell">
+      <Navbar />
+      <main className="main-viewport">
+        {activeTab === "table_map" && <TableMap />}
+        {activeTab === "live_orders" && <LiveOrders />}
+        {activeTab === "billing" && <BillingStation />}
+        {activeTab === "menu_manager" && <MenuManager />}
+        {activeTab === "analytics" && <RevenueAnalytics />}
+        {activeTab === "staff" && <StaffManagement />}
+        {activeTab === "qr_generator" && <QRCodeGenerator />}
+        {activeTab === "esp32" && <ESP32FirmwareView />}
+      </main>
+    </div>
   );
 };
 
 export default function App() {
   return (
     <RestoProvider>
-      <div className="app-shell">
-        <Navbar />
-        <MainContent />
-      </div>
+      <AppShell />
     </RestoProvider>
   );
 }
