@@ -370,47 +370,62 @@
                   created_at: new Date().toISOString()
                 };
 
-                // 1. Save to localStorage for instant local sync
+                // 1. Save to localStorage for instant local sync (if accessible)
                 try {
                   const existingRaw = localStorage.getItem("truffles_preorders");
                   const existing = existingRaw ? JSON.parse(existingRaw) : [];
                   existing.unshift(newPreOrderObj);
                   localStorage.setItem("truffles_preorders", JSON.stringify(existing));
-                  localStorage.setItem("truffles_last_event", JSON.stringify({
-                    type: "NEW_PREORDER",
-                    ticket: ticket,
-                    timestamp: Date.now()
-                  }));
                 } catch (e) {}
 
-                // 2. Resolve table UUID (defaults to Table 1 if not in URL)
+                // Requirement 1: Parse table parameter safely (?table=X, ?t=X, ?table_number=X). If missing, set table_id to null.
                 let tableUuid = null;
-                const tblNum = getURLTableNumber() || 1;
+                let parsedTableNum = null;
                 try {
-                  const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY };
-                  const resTbl = await fetch(SB_URL + `/rest/v1/restaurant_tables?table_number=eq.${tblNum}`, { headers });
-                  if (resTbl.ok) {
-                    const tblData = await resTbl.json();
-                    if (tblData && tblData[0]) {
-                      tableUuid = tblData[0].id;
-                    } else {
-                      const postTbl = await fetch(SB_URL + `/rest/v1/restaurant_tables`, {
-                        method: "POST",
-                        headers: { ...headers, "Content-Type": "application/json", "Prefer": "return=representation" },
-                        body: JSON.stringify({ table_number: tblNum, status: "occupied" })
-                      });
-                      if (postTbl.ok) {
-                        const createdTbl = await postTbl.json();
-                        if (createdTbl && createdTbl[0]) tableUuid = createdTbl[0].id;
+                  const urlParams = new URLSearchParams(window.location.search);
+                  const rawTab = urlParams.get("table") || urlParams.get("t") || urlParams.get("table_number");
+                  if (rawTab) {
+                    const num = parseInt(String(rawTab).replace(/\D/g, ""), 10);
+                    if (!isNaN(num) && num > 0) parsedTableNum = num;
+                  }
+                } catch (e) {
+                  parsedTableNum = null;
+                }
+
+                if (parsedTableNum !== null) {
+                  try {
+                    const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY };
+                    const resTbl = await fetch(SB_URL + `/rest/v1/restaurant_tables?table_number=eq.${parsedTableNum}`, { headers });
+                    if (resTbl.ok) {
+                      const tblData = await resTbl.json();
+                      if (tblData && tblData[0]) {
+                        tableUuid = tblData[0].id;
+                      } else {
+                        const postTbl = await fetch(SB_URL + `/rest/v1/restaurant_tables`, {
+                          method: "POST",
+                          headers: { ...headers, "Content-Type": "application/json", "Prefer": "return=representation" },
+                          body: JSON.stringify({ table_number: parsedTableNum, status: "occupied" })
+                        });
+                        if (postTbl.ok) {
+                          const createdTbl = await postTbl.json();
+                          if (createdTbl && createdTbl[0]) tableUuid = createdTbl[0].id;
+                        }
                       }
                     }
-                  }
-                } catch (e) {}
+                  } catch (e) {}
+                }
+
+                // Requirement 2: Build completely self-contained in-memory payload with ZERO localStorage dependency
+                const cartItemsArray = cart.map(c => ({
+                  name: c.name,
+                  qty: c.qty || c.quantity || 1,
+                  price: c.price || 0
+                }));
 
                 const dbOrderPayload = {
-                  table_id: tableUuid,
-                  customer_name: customer.name,
-                  customer_phone: customer.phone,
+                  table_id: tableUuid, // Integer/UUID or null
+                  customer_name: customer.name || "Guest",
+                  customer_phone: customer.phone || "",
                   total: totalAmt,
                   order_status: "New",
                   payment_status: "Pending",
@@ -418,7 +433,23 @@
                   preorder_ticket: ticket
                 };
 
-                // Send Order to Supabase DB & obtain inserted order ID
+                // Requirement 3: Mobile-friendly error handling with explicit status checking and onscreen alert modal
+                function showMobileErrorAlert(msg) {
+                  console.error("[Mobile Network Error]", msg);
+                  let alertBox = document.getElementById("mobile-debug-alert");
+                  if (!alertBox) {
+                    alertBox = document.createElement("div");
+                    alertBox.id = "mobile-debug-alert";
+                    alertBox.style.cssText = "position:fixed;top:20px;left:5%;right:5%;z-index:99999;background:#721c24;color:#fff;padding:16px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.5);font-family:sans-serif;font-size:14px;word-break:break-word;";
+                    document.body.appendChild(alertBox);
+                  }
+                  alertBox.innerHTML = `
+                    <div style="font-weight:bold;margin-bottom:8px;font-size:16px;">⚠️ Supabase Mobile Order Error</div>
+                    <div>${msg}</div>
+                    <button onclick="this.parentElement.remove()" style="margin-top:12px;background:#fff;color:#721c24;border:none;padding:6px 12px;border-radius:6px;font-weight:bold;cursor:pointer;">Dismiss</button>
+                  `;
+                }
+
                 try {
                   const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json", "Prefer": "return=representation" };
                   const resOrd = await fetch(SB_URL + "/rest/v1/orders", {
@@ -427,34 +458,46 @@
                     body: JSON.stringify(dbOrderPayload)
                   });
 
-                  if (resOrd.ok) {
-                    const ordData = await resOrd.json();
-                    const createdOrdId = ordData?.[0]?.id;
+                  if (!resOrd.ok) {
+                    const errText = await resOrd.text();
+                    showMobileErrorAlert(`HTTP ${resOrd.status} ${resOrd.statusText}: ${errText || "Order POST failed"}`);
+                    return;
+                  }
 
-                    if (createdOrdId && cart.length > 0) {
-                      const lineItemsPayload = cart.map(c => ({
-                        order_id: createdOrdId,
-                        price: c.price,
-                        quantity: c.qty,
-                        notes: c.name
-                      }));
+                  const ordData = await resOrd.json();
+                  const createdOrdId = ordData?.[0]?.id;
 
-                      await fetch(SB_URL + "/rest/v1/order_items", {
-                        method: "POST",
-                        headers,
-                        body: JSON.stringify(lineItemsPayload)
-                      });
-                    }
+                  if (createdOrdId && cartItemsArray.length > 0) {
+                    const lineItemsPayload = cartItemsArray.map(c => ({
+                      order_id: createdOrdId,
+                      price: c.price,
+                      quantity: c.qty,
+                      notes: c.name
+                    }));
 
-                    if (tableUuid) {
-                      await fetch(SB_URL + `/rest/v1/restaurant_tables?id=eq.${tableUuid}`, {
-                        method: "PATCH",
-                        headers,
-                        body: JSON.stringify({ status: "occupied" })
-                      });
+                    const resItems = await fetch(SB_URL + "/rest/v1/order_items", {
+                      method: "POST",
+                      headers,
+                      body: JSON.stringify(lineItemsPayload)
+                    });
+
+                    if (!resItems.ok) {
+                      const itemErr = await resItems.text();
+                      console.warn("[Line Items Insert Warning]", itemErr);
                     }
                   }
-                } catch (e) {}
+
+                  if (tableUuid) {
+                    await fetch(SB_URL + `/rest/v1/restaurant_tables?id=eq.${tableUuid}`, {
+                      method: "PATCH",
+                      headers,
+                      body: JSON.stringify({ status: "occupied" })
+                    });
+                  }
+                } catch (e) {
+                  showMobileErrorAlert(`Order Network Crash: ${e.message || e}`);
+                  return;
+                }
 
                 renderPreOrderView(`
                   <div style="text-align: center; padding: 24px 0;">

@@ -426,10 +426,10 @@
       } catch (e) {}
     }
 
-    // 3-Second HTTP Polling Auto-Refresh for KDS (Syncs new orders & status live)
+    // Requirement 4: 5-Second HTTP Polling Fallback + Realtime Sync for KDS
     setInterval(() => {
       fetchSupabaseOrdersKDS();
-    }, 3000);
+    }, 5000);
 
     // Mobile Reconnection Lifecycle: Re-fetch & reconnect on tab wake / screen focus / online
     function handleKDSMobileReconnect() {
