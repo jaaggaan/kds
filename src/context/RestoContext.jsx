@@ -346,6 +346,7 @@ export const RestoProvider = ({ children }) => {
         const matchingOrder = allDbOrders.find((o) => {
           if (o.order_status === "Completed" || o.order_status === "Cancelled") return false;
           
+          if (o.table_number && parseInt(String(o.table_number), 10) === t.number) return true;
           if (o.rawTableId && String(o.rawTableId) === String(t.id)) return true;
           if (o.tableId === `T${t.number}` || o.tableId === String(t.number) || o.tableId === t.id) return true;
           

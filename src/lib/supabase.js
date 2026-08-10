@@ -598,6 +598,7 @@ export const createOrderInDb = async ({
 
     const orderPayload = {
       table_id: dbTableUuid,
+      table_number: tableNumberFound,
       customer_name: finalCustomerName,
       customer_phone: finalCustomerPhone,
       order_status: "New",
@@ -770,7 +771,7 @@ export const createFeedbackInDb = async ({ orderId, rating, comments }) => {
 // ── REALTIME SUBSCRIPTION HELPER ──
 export const subscribeToRealtimeChanges = (onDataChange) => {
   const channel = supabase
-    .channel("food_ordering_realtime")
+    .channel("public:orders")
     .on(
       "postgres_changes",
       { event: "*", schema: "public", table: "orders" },
