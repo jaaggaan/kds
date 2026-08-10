@@ -462,65 +462,91 @@
                   `;
                 }
 
+                let createdOrdId = null;
+
+                // 1. Try atomic RPC create_complete_order procedure first
                 try {
-                  const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json", "Prefer": "return=representation" };
-                  const resOrd = await fetch(SB_URL + "/rest/v1/orders", {
+                  const rpcRes = await fetch(SB_URL + "/rest/v1/rpc/create_complete_order", {
                     method: "POST",
-                    headers,
-                    body: JSON.stringify(dbOrderPayload)
+                    headers: { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      p_table_number: parsedTableNum || 1,
+                      p_customer_name: customer.name || "Guest",
+                      p_customer_phone: customer.phone || "",
+                      p_items: cartItemsArray,
+                      p_total: totalAmt,
+                      p_notes: ""
+                    })
                   });
 
-                  if (!resOrd.ok) {
-                    const errText = await resOrd.text();
-                    showMobileErrorAlert(`HTTP ${resOrd.status} ${resOrd.statusText}: ${errText || "Order POST failed"}`);
-                    return;
-                  }
-
-                  const ordData = await resOrd.json();
-                  const createdOrdId = ordData?.[0]?.id;
-
-                  if (createdOrdId && cartItemsArray.length > 0) {
-                    const lineItemsPayload = cartItemsArray.map(c => ({
-                      order_id: createdOrdId,
-                      price: c.price,
-                      quantity: c.qty,
-                      notes: c.name
-                    }));
-
-                    const resItems = await fetch(SB_URL + "/rest/v1/order_items", {
-                      method: "POST",
-                      headers,
-                      body: JSON.stringify(lineItemsPayload)
-                    });
-
-                    if (!resItems.ok) {
-                      const itemErr = await resItems.text();
-                      console.warn("[Line Items Insert Warning]", itemErr);
+                  if (rpcRes.ok) {
+                    const rpcData = await rpcRes.json();
+                    if (rpcData && rpcData.order_id) {
+                      createdOrdId = rpcData.order_id;
+                      tableUuid = rpcData.table_id || tableUuid;
                     }
                   }
+                } catch (rpcErr) {
+                  console.warn("[Portal RPC Warning] RPC create_complete_order failed, falling back to REST:", rpcErr);
+                }
 
-                  if (tableUuid) {
-                    await fetch(SB_URL + `/rest/v1/restaurant_tables?id=eq.${tableUuid}`, {
-                      method: "PATCH",
+                // 2. Direct REST Fallback if RPC did not return order_id
+                if (!createdOrdId) {
+                  try {
+                    const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json", "Prefer": "return=representation" };
+                    const resOrd = await fetch(SB_URL + "/rest/v1/orders", {
+                      method: "POST",
                       headers,
-                      body: JSON.stringify({ status: "occupied" })
+                      body: JSON.stringify(dbOrderPayload)
                     });
+
+                    if (!resOrd.ok) {
+                      const errText = await resOrd.text();
+                      showMobileErrorAlert(`HTTP ${resOrd.status} ${resOrd.statusText}: ${errText || "Order POST failed"}`);
+                      return;
+                    }
+
+                    const ordData = await resOrd.json();
+                    createdOrdId = ordData?.[0]?.id;
+
+                    if (createdOrdId && cartItemsArray.length > 0) {
+                      const lineItemsPayload = cartItemsArray.map(c => ({
+                        order_id: createdOrdId,
+                        price: c.price,
+                        quantity: c.qty,
+                        notes: c.name
+                      }));
+
+                      await fetch(SB_URL + "/rest/v1/order_items", {
+                        method: "POST",
+                        headers,
+                        body: JSON.stringify(lineItemsPayload)
+                      });
+                    }
+
+                    if (tableUuid) {
+                      await fetch(SB_URL + `/rest/v1/restaurant_tables?id=eq.${tableUuid}`, {
+                        method: "PATCH",
+                        headers,
+                        body: JSON.stringify({ status: "occupied" })
+                      });
+                    }
+                  } catch (e) {
+                    showMobileErrorAlert(`Order Network Crash: ${e.message || e}`);
+                    return;
                   }
-                } catch (e) {
-                  showMobileErrorAlert(`Order Network Crash: ${e.message || e}`);
-                  return;
                 }
 
                 renderPreOrderView(`
                   <div style="text-align: center; padding: 24px 0;">
                     <div style="font-size: 56px; margin-bottom: 8px;">🎟️</div>
-                    <h3 style="font-size: 22px; font-weight: 800; color: #234A3B; margin: 0 0 8px;">Pre-Order Placed for ${customer.name}!</h3>
-                    <p style="font-size: 13px; color: #8A8475; margin: 0 0 20px;">Your food choices are queued in our system.</p>
+                    <h3 style="font-size: 22px; font-weight: 800; color: #234A3B; margin: 0 0 8px;">Order Placed for ${customer.name}!</h3>
+                    <p style="font-size: 13px; color: #8A8475; margin: 0 0 20px;">Your food choices are saved in Supabase & queued for kitchen prep.</p>
 
                     <div style="padding: 20px; border-radius: 16px; background: #FDF0F2; border: 1px solid #F5D0D6; margin-bottom: 24px;">
-                      <div style="font-size: 11px; font-weight: 800; color: #8A8475; margin-bottom: 4px;">YOUR TICKET NUMBER</div>
-                      <div style="font-size: 32px; font-weight: 900; color: #234A3B; font-family: monospace;">${ticket}</div>
-                      <div style="font-size: 12px; color: #8A8475; margin-top: 6px;">Assigned to ${customer.name} · Reflected in Staff Pre-Order Queue</div>
+                      <div style="font-size: 11px; font-weight: 800; color: #8A8475; margin-bottom: 4px;">DATABASE ORDER ID</div>
+                      <div style="font-size: 16px; font-weight: 900; color: #234A3B; font-family: monospace; word-break: break-all;">${createdOrdId || ticket}</div>
+                      <div style="font-size: 12px; color: #8A8475; margin-top: 6px;">Assigned to Table ${parsedTableNum || 1} · Reflected Live on POS & KDS</div>
                     </div>
 
                     <button id="po-done-btn" style="width: 100%; padding: 14px; border-radius: 16px; border: none; background: #234A3B; color: #ffffff; font-size: 14px; font-weight: 800; cursor: pointer; shadow: 0 4px 14px rgba(35,74,59,0.3);">
