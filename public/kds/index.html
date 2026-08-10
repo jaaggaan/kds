@@ -116,6 +116,10 @@
     // Helper to safely parse item tuples [qty, name, customizationsArray]
     function parseItemTuple(i) {
       if (!i) return ['1', 'Item', []];
+      // Already a parsed tuple [qty, name, pills[]] - pass through as-is
+      if (Array.isArray(i)) {
+        return [String(i[0] || 1), String(i[1] || 'Item'), Array.isArray(i[2]) ? i[2] : []];
+      }
       const q = String(i.qty || i.quantity || 1);
       const name = String(i.name || (i.menuItem && i.menuItem.name) || 'Delicious Item');
       let cust = [];
@@ -320,14 +324,44 @@
       const targetIdx = servedOrders.findIndex(s => String(s.id) === String(id));
       if (targetIdx !== -1) {
         const [reopened] = servedOrders.splice(targetIdx, 1);
-        reopened.status = 'ready';
-        orders.push(reopened);
+        reopened.status = 'preparing';
+        delete reopened.servedAt;
+        orders.unshift(reopened);
+
+        // 1. Save updated servedOrders (without this order)
         saveServedOrders();
+
+        // 2. Patch truffles_shared_orders — update OR insert
+        //    so the 500ms poll sees 'Preparing' and keeps it in Active Orders
+        try {
+          const sharedRaw = localStorage.getItem('truffles_shared_orders');
+          let sharedOrders = sharedRaw ? JSON.parse(sharedRaw) : [];
+          const existingIdx = sharedOrders.findIndex(o => String(o.id) === String(id));
+          if (existingIdx !== -1) {
+            sharedOrders[existingIdx] = { ...sharedOrders[existingIdx], status: 'Preparing', servedAt: null };
+          } else {
+            // Order not in shared_orders at all — insert it so polling picks it up
+            sharedOrders.unshift({
+              id: reopened.id,
+              tableId: reopened.table,
+              status: 'Preparing',
+              age: reopened.age || 1,
+              prep: reopened.prep || 15,
+              items: (reopened.items || []),
+              notes: reopened.note || '',
+              servedAt: null
+            });
+          }
+          localStorage.setItem('truffles_shared_orders', JSON.stringify(sharedOrders));
+        } catch (e) {}
+
+        // 3. Switch to 'all' filter so the reopened card is immediately visible
+        active = 'all';
         render();
 
-        const eventPayload = { type: 'UPDATE_ORDER_STATUS', orderId: reopened.id, newStatus: 'Ready', timestamp: Date.now() };
+        const eventPayload = { type: 'UPDATE_ORDER_STATUS', orderId: reopened.id, newStatus: 'Pending', timestamp: Date.now() };
         try { broadcastChannel.postMessage(eventPayload); } catch (e) {}
-        try { localStorage.setItem('truffles_last_event', JSON.stringify(eventPayload)); } catch (e) {}
+        try { localStorage.setItem('truffles_last_event', JSON.stringify(eventPayload)); } catch (e) {};
       }
     };
 
@@ -414,4 +448,5 @@
   </script>
 </body>
 </html>
+
 

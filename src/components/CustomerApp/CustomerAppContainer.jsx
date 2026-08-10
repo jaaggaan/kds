@@ -1,5 +1,12 @@
-import React, { useState, useEffect } from "react";
+﻿import React, { useState, useEffect } from "react";
 import { useResto } from "../../context/RestoContext";
+import {
+  createReservation,
+  fetchReservations,
+  checkTableAvailability,
+  createPreOrder,
+} from "../../lib/supabase";
+import { supabase } from "../../lib/supabase";
 import {
   Wifi,
   ShoppingBag,
@@ -22,7 +29,10 @@ import {
   Camera,
   Check,
   AlertTriangle,
-  LogOut
+  LogOut,
+  CalendarDays,
+  Ticket,
+  Users,
 } from "lucide-react";
 
 export const CustomerAppContainer = () => {
@@ -39,6 +49,7 @@ export const CustomerAppContainer = () => {
 
   // Navigation sub-screens for Customer App:
   // 1: portal, 2: otp_verify, 3: table_confirm, 4: menu, 5: tracking, 6: bill_pay, 7: feedback
+  // 8: reserve_modal, 9: preorder_modal, 10: preorder_success
   const [screen, setScreen] = useState("portal");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
@@ -87,10 +98,171 @@ export const CustomerAppContainer = () => {
   const [feedbackComment, setFeedbackComment] = useState("");
   const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
 
-  // Table active order check
+  // â”€â”€ RESERVATION STATE â”€â”€
+  const [showReserveModal, setShowReserveModal] = useState(false);
+  const [resDate, setResDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [resTime, setResTime] = useState("19:00");
+  const [resGuests, setResGuests] = useState(2);
+  const [resTableId, setResTableId] = useState("");
+  const [resAvailability, setResAvailability] = useState({}); // tableId -> boolean
+  const [resLoading, setResLoading] = useState(false);
+  const [resSuccess, setResSuccess] = useState(null);
+  const [resError, setResError] = useState("");
+
+  // â”€â”€ PRE-ORDER STATE â”€â”€
+  const [showPreOrderModal, setShowPreOrderModal] = useState(false);
+  const [preOrderCart, setPreOrderCart] = useState([]);
+  const [preOrderSubmitting, setPreOrderSubmitting] = useState(false);
+  const [preOrderTicket, setPreOrderTicket] = useState(null);
+  const [preOrderDish, setPreOrderDish] = useState(null);
+  const [preOrderDishQty, setPreOrderDishQty] = useState(1);
+  const [preOrderAddons, setPreOrderAddons] = useState([]);
+  const [preOrderSearch, setPreOrderSearch] = useState("");
+  const [preOrderCategory, setPreOrderCategory] = useState("all");
+
+  // Table active order check (excludes Completed, Paid, or Cancelled)
   const existingOrderForTable = activeOrders.find(
-    (o) => o.tableId === selectedTable && o.status !== "Cancelled"
+    (o) => (o.tableId === selectedTable || o.table_id === selectedTable) &&
+           o.status !== "Cancelled" &&
+           o.status !== "Completed" &&
+           o.payment_status !== "Paid"
   );
+
+  // â”€â”€ RESERVATION HANDLERS â”€â”€
+  // Generate 30-min time slots from 11:00 to 23:00
+  const timeSlots = Array.from({ length: 25 }, (_, i) => {
+    const totalMins = 11 * 60 + i * 30;
+    const h = String(Math.floor(totalMins / 60)).padStart(2, "0");
+    const m = String(totalMins % 60).padStart(2, "0");
+    return `${h}:${m}`;
+  });
+
+  // Recheck availability whenever date/time changes
+  useEffect(() => {
+    if (!showReserveModal) return;
+    const checkAll = async () => {
+      const startISO = new Date(`${resDate}T${resTime}:00`).toISOString();
+      const endISO = new Date(new Date(`${resDate}T${resTime}:00`).getTime() + 90 * 60 * 1000).toISOString();
+      const avail = {};
+      await Promise.all(
+        tables.map(async (t) => {
+          const ok = await checkTableAvailability(t.id, startISO, endISO);
+          avail[t.id] = ok;
+        })
+      );
+      setResAvailability(avail);
+    };
+    checkAll();
+  }, [resDate, resTime, showReserveModal, tables]);
+
+  const handleSubmitReservation = async () => {
+    if (!resTableId) { setResError("Please select a table."); return; }
+    setResLoading(true);
+    setResError("");
+    const startISO = new Date(`${resDate}T${resTime}:00`).toISOString();
+    const result = await createReservation({
+      customerName: customerName || "Guest",
+      customerPhone: customerPhone || "",
+      tableId: resTableId,
+      startTime: startISO,
+      guestCount: resGuests,
+      durationMinutes: 90,
+    });
+    setResLoading(false);
+    if (result.error) {
+      setResError(result.message || "This table is already reserved. Please choose another.");
+    } else {
+      setResSuccess(result.data);
+    }
+  };
+
+  // â”€â”€ PRE-ORDER HANDLERS â”€â”€
+  const preOrderSubtotal = preOrderCart.reduce((s, i) => s + i.total, 0);
+
+  const handleAddToPreOrderCart = () => {
+    if (!preOrderDish) return;
+    const itemTotal = (preOrderDish.price + preOrderAddons.reduce((s, a) => s + a.price, 0)) * preOrderDishQty;
+    setPreOrderCart((prev) => [...prev, {
+      cartId: `po-${Date.now()}`,
+      id: preOrderDish.id,
+      menuItemId: preOrderDish.id,
+      name: preOrderDish.name,
+      basePrice: preOrderDish.price,
+      price: preOrderDish.price + preOrderAddons.reduce((s, a) => s + a.price, 0),
+      qty: preOrderDishQty,
+      addons: preOrderAddons,
+      total: itemTotal,
+      image: preOrderDish.image,
+      customizations: preOrderAddons.map((a) => a.name),
+    }]);
+    setPreOrderDish(null);
+    setPreOrderDishQty(1);
+    setPreOrderAddons([]);
+  };
+
+  const handleSubmitPreOrder = async () => {
+    if (preOrderCart.length === 0) return;
+    setPreOrderSubmitting(true);
+    const result = await createPreOrder({
+      customerName: customerName || "Guest",
+      customerPhone: customerPhone || "",
+      items: preOrderCart.map((i) => ({
+        menuItemId: i.menuItemId,
+        name: i.name,
+        price: i.price,
+        qty: i.qty,
+        customizations: i.customizations,
+      })),
+      totalAmount: preOrderSubtotal,
+      notes: "",
+    });
+    setPreOrderSubmitting(false);
+    if (result.ticket) {
+      setPreOrderTicket(result.ticket);
+      setPreOrderCart([]);
+      setShowPreOrderModal(false);
+      setScreen("preorder_success");
+    }
+  };
+
+  const preOrderMenuItems = menuItems
+    .filter((item) => {
+      const matchCat = preOrderCategory === "all" || item.categoryId === preOrderCategory;
+      const matchSearch = item.name.toLowerCase().includes(preOrderSearch.toLowerCase());
+      return matchCat && matchSearch;
+    });
+
+  const handleTableCheckIn = async (newTableId) => {
+    try {
+      const custName = customerName || "Guest";
+      const { data: openOrders } = await supabase
+        .from("orders")
+        .select("id, table_id")
+        .eq("customer_name", custName)
+        .in("order_status", ["New", "Preparing", "Ready"])
+        .neq("payment_status", "Paid");
+
+      if (openOrders && openOrders.length > 0) {
+        for (const orphanOrder of openOrders) {
+          if (orphanOrder.table_id && orphanOrder.table_id !== newTableId) {
+            await supabase
+              .from("orders")
+              .update({ order_status: "Cancelled" })
+              .eq("id", orphanOrder.id);
+
+            await supabase
+              .from("restaurant_tables")
+              .update({ status: "vacant" })
+              .eq("id", orphanOrder.table_id);
+          }
+        }
+      }
+
+      await updateTableStatus(newTableId, "occupied");
+    } catch (err) {
+      console.error("Failed to handle multi-table check-in:", err);
+    }
+  };
 
   // Handle Bottom Sheet Customization Add
   const handleOpenCustomization = (dish) => {
@@ -188,31 +360,92 @@ export const CustomerAppContainer = () => {
   const grandTotal = Math.round(orderSubtotal + cgst + sgst + serviceCharge);
   const perPersonAmount = Math.ceil(grandTotal / Math.max(1, splitPeople));
 
-  const handlePaySuccess = () => {
+  const handlePaySuccess = async () => {
     setPaymentSuccess(true);
+
+    const targetOrderId = trackedOrder?.id;
+    const targetTableId = selectedTable || trackedOrder?.tableId;
+
+    if (targetOrderId) {
+      await payOrder(targetOrderId, {
+        grandTotal,
+        method: payMethod.toUpperCase(),
+        discount: 0,
+        tax: cgst + sgst,
+        serviceCharge: serviceCharge
+      });
+      await updateOrderStatus(targetOrderId, "Paid");
+    }
+
+    if (targetTableId) {
+      await updateTableStatus(targetTableId, "paid");
+    }
+
+    try {
+      localStorage.setItem(
+        "truffles_last_event",
+        JSON.stringify({
+          type: "PAYMENT_COMPLETED",
+          table_id: targetTableId,
+          tableId: targetTableId,
+          order_id: targetOrderId,
+          timestamp: Date.now()
+        })
+      );
+    } catch {}
+
     setTimeout(() => {
-      if (trackedOrder) {
-        payOrder(trackedOrder.id, {
-          grandTotal,
-          method: payMethod.toUpperCase(),
-          discount: 0,
-          tax: cgst + sgst,
-          serviceCharge: serviceCharge
-        });
-        updateOrderStatus(trackedOrder.id, "Paid");
-      }
       setScreen("feedback");
     }, 1500);
   };
 
   const handleLogoutGuest = async () => {
     if (window.confirm("Are you sure you want to disconnect Wi-Fi & log out of Table Session?")) {
-      if (selectedTable) {
-        await updateTableStatus(selectedTable, "needs_cleaning");
+      const activeTableIdOrNum = selectedTable || localStorage.getItem("truffles_active_table") || localStorage.getItem("truffles_guest_table");
+
+      if (activeTableIdOrNum) {
+        const targetTable = resolveTable(activeTableIdOrNum, tables);
+        const targetTableId = targetTable ? targetTable.id : (isUUID(activeTableIdOrNum) ? activeTableIdOrNum : null);
+
+        try {
+          // Cancel open, unpaid orders for this table in Supabase
+          if (targetTableId) {
+            await supabase
+              .from("orders")
+              .update({ order_status: "Cancelled" })
+              .eq("table_id", targetTableId)
+              .neq("payment_status", "Paid")
+              .in("order_status", ["New", "Preparing", "Ready"]);
+          } else if (targetTable?.number) {
+            const { data: tableRow } = await supabase
+              .from("restaurant_tables")
+              .select("id")
+              .eq("table_number", targetTable.number)
+              .maybeSingle();
+
+            if (tableRow?.id) {
+              await supabase
+                .from("orders")
+                .update({ order_status: "Cancelled" })
+                .eq("table_id", tableRow.id)
+                .neq("payment_status", "Paid")
+                .in("order_status", ["New", "Preparing", "Ready"]);
+            }
+          }
+        } catch (err) {
+          console.error("Failed to cancel active orders on logout:", err);
+        }
+
+        // Set table status to needs_cleaning (starts 20s auto-vacant countdown)
+        await updateTableStatus(activeTableIdOrNum, "needs_cleaning");
       }
+
+      // Clear all client session local storage keys
       localStorage.removeItem("truffles_guest_table");
       localStorage.removeItem("truffles_customer_session");
       localStorage.removeItem("truffles_active_table");
+      localStorage.removeItem("truffles_customer_name");
+
       setCart([]);
       setScreen("portal");
     }
@@ -365,12 +598,42 @@ export const CustomerAppContainer = () => {
       {screen === "table_confirm" && (
         <div className="customer-screen-card table-confirm-splash">
           <div className="splash-content">
+            {/* â”€â”€ HEADER CONTROL BAR â”€â”€ */}
+            <div style={{
+              display: "flex", gap: "10px", width: "100%", marginBottom: "16px"
+            }}>
+              <button
+                onClick={() => { setPreOrderCart([]); setShowPreOrderModal(true); }}
+                style={{
+                  flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                  gap: "7px", padding: "11px 12px", borderRadius: "12px",
+                  background: "linear-gradient(135deg, #F59E0B, #D97706)",
+                  color: "#fff", fontWeight: 700, fontSize: "13px", border: "none", cursor: "pointer",
+                  boxShadow: "0 4px 14px rgba(245,158,11,0.35)"
+                }}
+              >
+                <ShoppingBag size={15} /> Pre-Order Food
+              </button>
+              <button
+                onClick={() => { setResSuccess(null); setResError(""); setResTableId(""); setShowReserveModal(true); }}
+                style={{
+                  flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+                  gap: "7px", padding: "11px 12px", borderRadius: "12px",
+                  background: "linear-gradient(135deg, #6366F1, #4F46E5)",
+                  color: "#fff", fontWeight: 700, fontSize: "13px", border: "none", cursor: "pointer",
+                  boxShadow: "0 4px 14px rgba(99,102,241,0.35)"
+                }}
+              >
+                <CalendarDays size={15} /> Reserve a Table
+              </button>
+            </div>
+
             <div className="table-badge-large">
               <span>TABLE</span>
               <strong>{selectedTable}</strong>
             </div>
 
-            <h2>You are at Table {selectedTable} — Koramangala Branch</h2>
+            <h2>You are at Table {selectedTable} â€” Koramangala Branch</h2>
 
             <div className="form-group" style={{ width: "100%", margin: "12px 0", textAlign: "left" }}>
               <label className="caption-text">Select / Change Your Table Number:</label>
@@ -419,7 +682,10 @@ export const CustomerAppContainer = () => {
               <button
                 className="btn-primary"
                 style={{ width: "100%" }}
-                onClick={() => setScreen("menu")}
+                onClick={() => {
+                  handleTableCheckIn(selectedTable);
+                  setScreen("menu");
+                }}
               >
                 Browse Digital Menu <ArrowRight size={16} />
               </button>
@@ -458,7 +724,7 @@ export const CustomerAppContainer = () => {
           <div className="menu-sticky-header">
             <div>
               <h1 className="brand-truffles-title" style={{ fontSize: "20px" }}>TRUFFLES</h1>
-              <span className="caption-text">Table {selectedTable} • Koramangala</span>
+              <span className="caption-text">Table {selectedTable} â€¢ Koramangala</span>
             </div>
 
             <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
@@ -562,7 +828,7 @@ export const CustomerAppContainer = () => {
                   <h3 className="dish-name">{dish.name}</h3>
                   <p className="caption-text">{dish.description}</p>
                   <div className="dish-footer-row">
-                    <span className="price-mono">₹{dish.price}</span>
+                    <span className="price-mono">â‚¹{dish.price}</span>
                     <button className="btn-secondary add-btn-sm">
                       + Add
                     </button>
@@ -577,7 +843,7 @@ export const CustomerAppContainer = () => {
             <div className="floating-cart-bar" onClick={() => setShowCartDrawer(true)}>
               <div>
                 <span className="caption-text">{cart.reduce((s, i) => s + i.qty, 0)} ITEMS</span>
-                <div className="price-mono" style={{ fontSize: "18px" }}>₹{cartSubtotal}</div>
+                <div className="price-mono" style={{ fontSize: "18px" }}>â‚¹{cartSubtotal}</div>
               </div>
               <button className="btn-primary">
                 View Cart <ArrowRight size={16} />
@@ -600,7 +866,7 @@ export const CustomerAppContainer = () => {
             <div className="sheet-body">
               <div className="sheet-title-row">
                 <h2>{selectedDish.name}</h2>
-                <span className="price-mono" style={{ fontSize: "20px" }}>₹{selectedDish.price}</span>
+                <span className="price-mono" style={{ fontSize: "20px" }}>â‚¹{selectedDish.price}</span>
               </div>
               <p className="body-text">{selectedDish.description}</p>
 
@@ -619,7 +885,7 @@ export const CustomerAppContainer = () => {
                             onChange={() => handleAddonToggle(addon)}
                           />
                           <span className="addon-name">{addon.name}</span>
-                          <span className="price-mono" style={{ fontSize: "14px" }}>+₹{addon.price}</span>
+                          <span className="price-mono" style={{ fontSize: "14px" }}>+â‚¹{addon.price}</span>
                         </label>
                       );
                     })}
@@ -650,7 +916,7 @@ export const CustomerAppContainer = () => {
                 </div>
 
                 <button className="btn-primary" style={{ flex: 1 }} onClick={handleConfirmAddToCart}>
-                  Add to Cart • ₹
+                  Add to Cart â€¢ â‚¹
                   {(selectedDish.price + selectedAddons.reduce((s, a) => s + a.price, 0)) * dishQty}
                 </button>
               </div>
@@ -690,7 +956,7 @@ export const CustomerAppContainer = () => {
                           {item.addons.map((a) => a.name).join(", ")}
                         </span>
                       )}
-                      <span className="price-mono">₹{item.total}</span>
+                      <span className="price-mono">â‚¹{item.total}</span>
                     </div>
 
                     <div className="qty-picker">
@@ -717,7 +983,7 @@ export const CustomerAppContainer = () => {
               <div className="cart-drawer-footer">
                 <div className="subtotal-row">
                   <span>Subtotal Amount</span>
-                  <span className="timer-stats-mono" style={{ fontSize: "20px" }}>₹{cartSubtotal}</span>
+                  <span className="timer-stats-mono" style={{ fontSize: "20px" }}>â‚¹{cartSubtotal}</span>
                 </div>
 
                 <button className="btn-primary" style={{ width: "100%" }} onClick={handlePlaceOrder}>
@@ -734,7 +1000,7 @@ export const CustomerAppContainer = () => {
         <div className="customer-screen-card order-tracking-view fade-in">
           <div className="tracking-header">
             <h2>Order Status</h2>
-            <span className="badge-tag active">{trackedOrder.id} • Table {trackedOrder.tableId}</span>
+            <span className="badge-tag active">{trackedOrder.id} â€¢ Table {trackedOrder.tableId}</span>
           </div>
 
           {/* Vertical Progress Bar */}
@@ -775,7 +1041,7 @@ export const CustomerAppContainer = () => {
             {trackedOrder.items.map((i, idx) => (
               <div key={idx} className="summary-item-line">
                 <span>{i.qty}x {i.name}</span>
-                <span className="price-mono">₹{i.price * i.qty}</span>
+                <span className="price-mono">â‚¹{i.price * i.qty}</span>
               </div>
             ))}
           </div>
@@ -784,7 +1050,16 @@ export const CustomerAppContainer = () => {
             <button className="btn-secondary" onClick={() => setScreen("menu")}>
               + Order More Items
             </button>
-            <button className="btn-primary" onClick={() => setScreen("bill_pay")}>
+            <button
+              className="btn-primary"
+              onClick={async () => {
+                const activeTabId = selectedTable || trackedOrder?.tableId;
+                if (activeTabId) {
+                  await updateTableStatus(activeTabId, "awaiting_payment");
+                }
+                setScreen("bill_pay");
+              }}
+            >
               Proceed to Bill & Pay <ArrowRight size={16} />
             </button>
           </div>
@@ -795,23 +1070,23 @@ export const CustomerAppContainer = () => {
       {screen === "bill_pay" && trackedOrder && (
         <div className="customer-screen-card bill-pay-view fade-in">
           <h2>Your Final Bill</h2>
-          <span className="caption-text">Table {selectedTable} • Order {trackedOrder.id}</span>
+          <span className="caption-text">Table {selectedTable} â€¢ Order {trackedOrder.id}</span>
 
           <div className="bill-items-list">
             {trackedOrder.items.map((item, idx) => (
               <div key={idx} className="bill-item-row">
                 <span>{item.qty}x {item.name}</span>
-                <span className="price-mono">₹{item.price * item.qty}</span>
+                <span className="price-mono">â‚¹{item.price * item.qty}</span>
               </div>
             ))}
           </div>
 
           <div className="bill-taxes-box">
-            <div className="calc-row"><span>Subtotal</span><span>₹{orderSubtotal}</span></div>
-            <div className="calc-row"><span>CGST (2.5%)</span><span>₹{cgst.toFixed(2)}</span></div>
-            <div className="calc-row"><span>SGST (2.5%)</span><span>₹{sgst.toFixed(2)}</span></div>
-            <div className="calc-row"><span>Service Charge (5%)</span><span>₹{serviceCharge.toFixed(2)}</span></div>
-            <div className="calc-row grand-total"><span>Grand Total</span><span className="timer-stats-mono" style={{ fontSize: "22px" }}>₹{grandTotal}</span></div>
+            <div className="calc-row"><span>Subtotal</span><span>â‚¹{orderSubtotal}</span></div>
+            <div className="calc-row"><span>CGST (2.5%)</span><span>â‚¹{cgst.toFixed(2)}</span></div>
+            <div className="calc-row"><span>SGST (2.5%)</span><span>â‚¹{sgst.toFixed(2)}</span></div>
+            <div className="calc-row"><span>Service Charge (5%)</span><span>â‚¹{serviceCharge.toFixed(2)}</span></div>
+            <div className="calc-row grand-total"><span>Grand Total</span><span className="timer-stats-mono" style={{ fontSize: "22px" }}>â‚¹{grandTotal}</span></div>
           </div>
 
           {/* Split Bill Toggle */}
@@ -829,7 +1104,7 @@ export const CustomerAppContainer = () => {
                   <span className="price-mono">{splitPeople}</span>
                   <button onClick={() => setSplitPeople(splitPeople + 1)}>+</button>
                 </div>
-                <span className="timer-stats-mono" style={{ fontSize: "16px" }}>₹{perPersonAmount}/person</span>
+                <span className="timer-stats-mono" style={{ fontSize: "16px" }}>â‚¹{perPersonAmount}/person</span>
               </div>
             )}
           </div>
@@ -854,7 +1129,7 @@ export const CustomerAppContainer = () => {
             </div>
           ) : (
             <button className="btn-primary" style={{ width: "100%", marginTop: "12px" }} onClick={handlePaySuccess}>
-              Pay ₹{isSplitBill ? perPersonAmount : grandTotal} Now
+              Pay â‚¹{isSplitBill ? perPersonAmount : grandTotal} Now
             </button>
           )}
         </div>
@@ -919,6 +1194,340 @@ export const CustomerAppContainer = () => {
           </div>
         </div>
       )}
+      
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+           RESERVE TABLE MODAL
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {showReserveModal && (
+        <div
+          onClick={() => { if (!resLoading) setShowReserveModal(false); }}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.75)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#1A1A2E", borderRadius: "20px 20px 0 0",
+              padding: "24px 20px 32px", width: "100%", maxWidth: "480px",
+              maxHeight: "90vh", overflowY: "auto"
+            }}
+          >
+            {/* Modal Header */}
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "20px" }}>
+              <h3 style={{ margin: 0, color: "#fff", fontSize: "18px", fontWeight: 700, display: "flex", alignItems: "center", gap: "8px" }}>
+                <CalendarDays size={18} color="#818CF8" /> Reserve a Table
+              </h3>
+              <button onClick={() => setShowReserveModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}>
+                <X size={20} />
+              </button>
+            </div>
+
+            {resSuccess ? (
+              /* Success State */
+              <div style={{ textAlign: "center", padding: "20px 0" }}>
+                <div style={{ fontSize: "48px", marginBottom: "12px" }}>ðŸŽ‰</div>
+                <h3 style={{ color: "#7EE787", margin: "0 0 8px" }}>Reservation Confirmed!</h3>
+                <p style={{ color: "#9CA3AF", fontSize: "13px", margin: "0 0 20px" }}>
+                  Table {tables.find(t => t.id === resTableId)?.number} reserved for {resGuests} guests<br />
+                  on {new Date(`${resDate}T${resTime}`).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                </p>
+                <div style={{ padding: "12px", borderRadius: "10px", background: "rgba(99,102,241,0.15)", border: "1px solid rgba(99,102,241,0.3)", marginBottom: "20px" }}>
+                  <p style={{ color: "#A5B4FC", fontSize: "12px", margin: 0 }}>Reservation for {customerName || "Guest"} â€¢ Your table will be ready at the reserved time.</p>
+                </div>
+                <button className="btn-primary" style={{ width: "100%" }} onClick={() => setShowReserveModal(false)}>
+                  Done
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Date Picker */}
+                <div style={{ marginBottom: "16px" }}>
+                  <label style={{ display: "block", color: "#9CA3AF", fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>Date</label>
+                  <input
+                    type="date"
+                    value={resDate}
+                    min={new Date().toISOString().split("T")[0]}
+                    max={new Date(Date.now() + 7 * 86400000).toISOString().split("T")[0]}
+                    onChange={(e) => setResDate(e.target.value)}
+                    style={{ width: "100%", padding: "10px 12px", borderRadius: "10px", border: "1px solid #374151", background: "#111827", color: "#fff", fontSize: "14px" }}
+                  />
+                </div>
+
+                {/* Time Slot Picker */}
+                <div style={{ marginBottom: "16px" }}>
+                  <label style={{ display: "block", color: "#9CA3AF", fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>
+                    Time Slot (90-min block)
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "6px" }}>
+                    {timeSlots.map((slot) => (
+                      <button
+                        key={slot}
+                        onClick={() => setResTime(slot)}
+                        style={{
+                          padding: "8px 4px", borderRadius: "8px", border: "1px solid",
+                          borderColor: resTime === slot ? "#6366F1" : "#374151",
+                          background: resTime === slot ? "rgba(99,102,241,0.2)" : "#111827",
+                          color: resTime === slot ? "#A5B4FC" : "#9CA3AF",
+                          fontSize: "11px", fontWeight: 600, cursor: "pointer"
+                        }}
+                      >{slot}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Guest Count */}
+                <div style={{ marginBottom: "16px" }}>
+                  <label style={{ display: "block", color: "#9CA3AF", fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "6px" }}>Number of Guests</label>
+                  <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+                    <button onClick={() => setResGuests(Math.max(1, resGuests - 1))} className="btn-secondary" style={{ padding: "8px 16px" }}>âˆ’</button>
+                    <span style={{ color: "#fff", fontWeight: 700, fontSize: "18px", minWidth: "40px", textAlign: "center" }}>{resGuests}</span>
+                    <button onClick={() => setResGuests(Math.min(12, resGuests + 1))} className="btn-secondary" style={{ padding: "8px 16px" }}>+</button>
+                    <span style={{ color: "#6B7280", fontSize: "13px" }}>guests</span>
+                  </div>
+                </div>
+
+                {/* Table Availability Grid */}
+                <div style={{ marginBottom: "16px" }}>
+                  <label style={{ display: "block", color: "#9CA3AF", fontSize: "12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: "8px" }}>
+                    Select Table
+                  </label>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "8px" }}>
+                    {tables.map((t) => {
+                      const isOccupied = t.status === "occupied" || t.status === "awaiting_payment";
+                      const isAlreadyReserved = resAvailability[t.id] === false || t.status === "reserved";
+                      const isDisabled = isOccupied || isAlreadyReserved;
+                      const isSelected = resTableId === t.id;
+                      return (
+                        <button
+                          key={t.id}
+                          disabled={isDisabled}
+                          onClick={() => { setResTableId(t.id); setResError(""); }}
+                          title={isOccupied ? "Currently occupied" : isAlreadyReserved ? "Already reserved" : "Available"}
+                          style={{
+                            padding: "12px 6px", borderRadius: "10px", border: "2px solid",
+                            borderColor: isSelected ? "#6366F1" : isDisabled ? "#1F2937" : "#374151",
+                            background: isSelected ? "rgba(99,102,241,0.2)" : isDisabled ? "#0F172A" : "#1F2937",
+                            color: isSelected ? "#A5B4FC" : isDisabled ? "#4B5563" : "#D1D5DB",
+                            fontWeight: 700, fontSize: "12px", cursor: isDisabled ? "not-allowed" : "pointer",
+                            opacity: isDisabled ? 0.5 : 1
+                          }}
+                        >
+                          T{t.number || t.table_number}
+                          {isDisabled && <div style={{ fontSize: "9px", fontWeight: 400, marginTop: "2px", color: "#6B7280" }}>{isOccupied ? "Busy" : "Reserved"}</div>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {resError && (
+                  <p style={{ color: "#F87171", fontSize: "13px", marginBottom: "12px", display: "flex", alignItems: "center", gap: "6px" }}>
+                    <AlertTriangle size={14} /> {resError}
+                  </p>
+                )}
+
+                <button
+                  className="btn-primary"
+                  style={{ width: "100%" }}
+                  disabled={resLoading || !resTableId}
+                  onClick={handleSubmitReservation}
+                >
+                  {resLoading ? "Confirming..." : `Confirm Reservation for ${resGuests} guests`}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+           PRE-ORDER FOOD MODAL
+      â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */}
+      {showPreOrderModal && (
+        <div
+          onClick={() => setShowPreOrderModal(false)}
+          style={{
+            position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)",
+            display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 2000
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              background: "#1A1A2E", borderRadius: "20px 20px 0 0",
+              width: "100%", maxWidth: "480px", maxHeight: "92vh",
+              display: "flex", flexDirection: "column"
+            }}
+          >
+            {/* Pre-Order Header */}
+            <div style={{ padding: "20px 20px 0", flexShrink: 0 }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "14px" }}>
+                <h3 style={{ margin: 0, color: "#fff", fontSize: "18px", fontWeight: 700, display: "flex", alignItems: "center", gap: "8px" }}>
+                  <ShoppingBag size={18} color="#FBBF24" /> Pre-Order Food
+                </h3>
+                <button onClick={() => setShowPreOrderModal(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}>
+                  <X size={20} />
+                </button>
+              </div>
+              <p style={{ color: "#6B7280", fontSize: "12px", margin: "0 0 12px" }}>
+                Order ahead â€” we'll send you to the kitchen as soon as a table is free!
+              </p>
+              {/* Search */}
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 12px", borderRadius: "10px", background: "#111827", border: "1px solid #374151", marginBottom: "10px" }}>
+                <Search size={14} color="#6B7280" />
+                <input
+                  type="text" placeholder="Search menu..."
+                  value={preOrderSearch}
+                  onChange={(e) => setPreOrderSearch(e.target.value)}
+                  style={{ background: "none", border: "none", outline: "none", color: "#fff", fontSize: "13px", width: "100%" }}
+                />
+              </div>
+              {/* Category Scroll */}
+              <div style={{ display: "flex", gap: "8px", overflowX: "auto", paddingBottom: "10px" }}>
+                <button
+                  onClick={() => setPreOrderCategory("all")}
+                  style={{
+                    padding: "5px 14px", borderRadius: "20px", border: "none", whiteSpace: "nowrap",
+                    background: preOrderCategory === "all" ? "#FF6B35" : "#1F2937",
+                    color: preOrderCategory === "all" ? "#fff" : "#9CA3AF",
+                    fontWeight: 600, fontSize: "12px", cursor: "pointer"
+                  }}
+                >All</button>
+                {categories.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setPreOrderCategory(c.id)}
+                    style={{
+                      padding: "5px 14px", borderRadius: "20px", border: "none", whiteSpace: "nowrap",
+                      background: preOrderCategory === c.id ? "#FF6B35" : "#1F2937",
+                      color: preOrderCategory === c.id ? "#fff" : "#9CA3AF",
+                      fontWeight: 600, fontSize: "12px", cursor: "pointer"
+                    }}
+                  >{c.name}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Menu Scroll Area */}
+            <div style={{ overflowY: "auto", flex: 1, padding: "0 20px" }}>
+              {preOrderMenuItems.map((dish) => (
+                <div
+                  key={dish.id}
+                  onClick={() => { setPreOrderDish(dish); setPreOrderDishQty(1); setPreOrderAddons([]); }}
+                  style={{
+                    display: "flex", gap: "12px", alignItems: "center",
+                    padding: "12px 0", borderBottom: "1px solid #1F2937", cursor: "pointer"
+                  }}
+                >
+                  {dish.image && <img src={dish.image} alt={dish.name} style={{ width: "56px", height: "56px", borderRadius: "8px", objectFit: "cover", flexShrink: 0 }} />}
+                  <div style={{ flex: 1 }}>
+                    <p style={{ margin: "0 0 2px", color: "#F9FAFB", fontWeight: 600, fontSize: "14px" }}>{dish.name}</p>
+                    <p style={{ margin: "0 0 4px", color: "#6B7280", fontSize: "12px" }}>{dish.description}</p>
+                    <span style={{ color: "#FF6B35", fontWeight: 700, fontSize: "14px" }}>â‚¹{dish.price}</span>
+                  </div>
+                  <button style={{ padding: "6px 14px", borderRadius: "8px", background: "#FF6B35", color: "#fff", border: "none", fontWeight: 700, fontSize: "12px", cursor: "pointer" }}>
+                    + Add
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* Cart Summary + Submit */}
+            {preOrderCart.length > 0 && (
+              <div style={{ padding: "16px 20px", borderTop: "1px solid #1F2937", flexShrink: 0 }}>
+                <div style={{ marginBottom: "10px" }}>
+                  {preOrderCart.map((item) => (
+                    <div key={item.cartId} style={{ display: "flex", justifyContent: "space-between", color: "#D1D5DB", fontSize: "13px", marginBottom: "4px" }}>
+                      <span>{item.qty}Ã— {item.name}</span>
+                      <span>â‚¹{item.total}</span>
+                    </div>
+                  ))}
+                  <div style={{ display: "flex", justifyContent: "space-between", color: "#fff", fontWeight: 700, borderTop: "1px solid #374151", paddingTop: "8px", marginTop: "8px" }}>
+                    <span>Total</span><span>â‚¹{preOrderSubtotal}</span>
+                  </div>
+                </div>
+                <button
+                  className="btn-primary" style={{ width: "100%" }}
+                  disabled={preOrderSubmitting}
+                  onClick={handleSubmitPreOrder}
+                >
+                  {preOrderSubmitting ? "Placing Pre-Order..." : `Place Pre-Order (â‚¹${preOrderSubtotal}) â†’`}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Pre-Order Item Customization Sheet */}
+      {preOrderDish && (
+        <div
+          onClick={() => setPreOrderDish(null)}
+          style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: "flex-end", justifyContent: "center", zIndex: 3000 }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{ background: "#1A1A2E", borderRadius: "20px 20px 0 0", padding: "24px 20px 32px", width: "100%", maxWidth: "480px" }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+              <h3 style={{ margin: 0, color: "#fff", fontWeight: 700 }}>{preOrderDish.name}</h3>
+              <button onClick={() => setPreOrderDish(null)} style={{ background: "none", border: "none", cursor: "pointer", color: "#9CA3AF" }}><X size={18} /></button>
+            </div>
+            {preOrderDish.customizations?.length > 0 && (
+              <div style={{ marginBottom: "16px" }}>
+                <p style={{ color: "#9CA3AF", fontSize: "12px", marginBottom: "8px" }}>ADD-ONS</p>
+                {preOrderDish.customizations.map((addon) => {
+                  const isSelected = preOrderAddons.some((a) => a.id === addon.id);
+                  return (
+                    <label key={addon.id} style={{ display: "flex", alignItems: "center", gap: "10px", padding: "8px", borderRadius: "8px", cursor: "pointer", marginBottom: "4px", background: isSelected ? "rgba(255,107,53,0.15)" : "transparent" }}>
+                      <input type="checkbox" checked={isSelected} onChange={() => setPreOrderAddons(isSelected ? preOrderAddons.filter((a) => a.id !== addon.id) : [...preOrderAddons, addon])} />
+                      <span style={{ color: "#D1D5DB", fontSize: "14px" }}>{addon.name}</span>
+                      <span style={{ marginLeft: "auto", color: "#FF6B35", fontSize: "13px" }}>+â‚¹{addon.price}</span>
+                    </label>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ display: "flex", alignItems: "center", gap: "16px", marginBottom: "16px" }}>
+              <button onClick={() => setPreOrderDishQty(Math.max(1, preOrderDishQty - 1))} className="btn-secondary" style={{ padding: "8px 16px" }}>âˆ’</button>
+              <span style={{ color: "#fff", fontWeight: 700, fontSize: "18px" }}>{preOrderDishQty}</span>
+              <button onClick={() => setPreOrderDishQty(preOrderDishQty + 1)} className="btn-secondary" style={{ padding: "8px 16px" }}>+</button>
+            </div>
+            <button className="btn-primary" style={{ width: "100%" }} onClick={handleAddToPreOrderCart}>
+              Add â‚¹{(preOrderDish.price + preOrderAddons.reduce((s, a) => s + a.price, 0)) * preOrderDishQty} to Pre-Order
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* SCREEN: PRE-ORDER SUCCESS */}
+      {screen === "preorder_success" && (
+        <div className="customer-screen-card portal-splash fade-in">
+          <div className="splash-content" style={{ textAlign: "center" }}>
+            <div style={{ fontSize: "56px", marginBottom: "8px" }}>ðŸŽŸï¸</div>
+            <h2 style={{ color: "#7EE787", marginBottom: "8px" }}>Pre-Order Placed!</h2>
+            <p className="body-text" style={{ marginBottom: "20px" }}>Your order is queued. We'll seat you as soon as a table is available!</p>
+            <div style={{
+              padding: "20px", borderRadius: "14px",
+              background: "rgba(245,158,11,0.12)", border: "1px solid rgba(245,158,11,0.3)",
+              marginBottom: "24px"
+            }}>
+              <p style={{ color: "#9CA3AF", fontSize: "12px", margin: "0 0 6px" }}>YOUR TICKET NUMBER</p>
+              <p style={{ color: "#FBBF24", fontSize: "32px", fontWeight: 900, fontFamily: "monospace", margin: 0 }}>{preOrderTicket}</p>
+              <p style={{ color: "#6B7280", fontSize: "12px", margin: "8px 0 0" }}>Show this to our staff when you're called</p>
+            </div>
+            <p style={{ color: "#6B7280", fontSize: "13px", marginBottom: "20px" }}>
+              Our team will notify you when Table is ready. Average wait: 15â€“20 min.
+            </p>
+            <button className="btn-primary" style={{ width: "100%" }} onClick={() => setScreen("table_confirm")}>
+              Back to Check-In
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+

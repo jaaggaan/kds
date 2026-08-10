@@ -8,6 +8,7 @@ import { BillingStation } from "./components/Billing/BillingStation";
 import { MenuManager } from "./components/MenuManager/MenuManager";
 import { RevenueAnalytics } from "./components/Analytics/RevenueAnalytics";
 import { StaffManagement } from "./components/Dashboard/StaffManagement";
+import { PreOrderQueue } from "./components/Dashboard/PreOrderQueue";
 import { QRCodeGenerator } from "./components/Tools/QRCodeGenerator";
 import { ESP32FirmwareView } from "./components/Tools/ESP32FirmwareView";
 import { CaptivePortalView } from "./components/CaptivePortal/CaptivePortalView";
@@ -48,6 +49,7 @@ const AppShell = () => {
         {activeTab === "staff" && <StaffManagement />}
         {activeTab === "qr_generator" && <QRCodeGenerator />}
         {activeTab === "esp32" && <ESP32FirmwareView />}
+        {activeTab === "pre_order_queue" && <PreOrderQueue />}
       </main>
     </div>
   );

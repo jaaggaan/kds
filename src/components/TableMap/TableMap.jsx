@@ -5,7 +5,7 @@ import { NewOrderModal } from "./NewOrderModal";
 import { Users, Receipt, User, Phone, Sparkles } from "lucide-react";
 
 export const TableMap = () => {
-  const { tables } = useResto();
+  const { tables, activeOrders } = useResto();
   const [selectedTableId, setSelectedTableId] = useState(null);
   const [showNewOrderModal, setShowNewOrderModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState("all");
@@ -29,6 +29,43 @@ export const TableMap = () => {
       case "reserved": return "Reserved";
       default: return status;
     }
+  };
+
+  const renderTableBadge = (table) => {
+    const tableOrder = (activeOrders || []).find(
+      (o) => (o.tableId === table.id || o.table_id === table.id || o.tableNumber === table.number) &&
+             o.status !== "Cancelled" && o.status !== "Completed" && o.payment_status !== "Paid"
+    );
+
+    if (table.status === "needs_cleaning") {
+      return (
+        <span className="table-status-tag" style={{ backgroundColor: "#F59E0B", color: "#ffffff", fontWeight: 700 }}>
+          NEEDS CLEANING
+        </span>
+      );
+    }
+
+    if (table.status === "paid" || table.isPaid || tableOrder?.payment_status === "Paid") {
+      return (
+        <span className="table-status-tag" style={{ backgroundColor: "#8B5CF6", color: "#ffffff", fontWeight: 700 }}>
+          PAID
+        </span>
+      );
+    }
+
+    if (table.status === "awaiting_payment" || table.status === "awaiting_bill") {
+      return (
+        <span className="table-status-tag" style={{ backgroundColor: "#F59E0B", color: "#ffffff", fontWeight: 700 }}>
+          AWAITING BILL
+        </span>
+      );
+    }
+
+    if (tableOrder || table.status === "occupied") {
+      return <span className="table-status-tag tag-occupied">Occupied</span>;
+    }
+
+    return <span className={`table-status-tag tag-${table.status}`}>{getStatusBadgeLabel(table.status)}</span>;
   };
 
   return (
@@ -89,15 +126,7 @@ export const TableMap = () => {
           >
             <div className="table-card-header">
               <span className="table-number">T{table.number || table.id}</span>
-              {table.isPaid ? (
-                <span className="table-status-tag" style={{ backgroundColor: "#16a34a", color: "#ffffff", fontWeight: 700 }}>
-                  PAID
-                </span>
-              ) : (
-                <span className={`table-status-tag tag-${table.status}`}>
-                  {getStatusBadgeLabel(table.status)}
-                </span>
-              )}
+              {renderTableBadge(table)}
             </div>
 
             <div className="table-card-body">

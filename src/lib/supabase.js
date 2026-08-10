@@ -230,15 +230,36 @@ export const upsertRestaurantTable = async (table) => {
 
 export const updateRestaurantTableStatus = async (tableId, status) => {
   try {
-    if (!isUUID(tableId)) return null;
+    let dbUuid = isUUID(tableId) ? tableId : null;
+    if (!dbUuid) {
+      let num = NaN;
+      if (typeof tableId === "number") num = tableId;
+      else if (typeof tableId === "string") {
+        num = parseInt(tableId.trim().toUpperCase().replace(/^T/, ""), 10);
+      }
+      if (!isNaN(num)) {
+        const { data } = await supabase
+          .from("restaurant_tables")
+          .select("id")
+          .eq("table_number", num)
+          .maybeSingle();
+        if (data?.id) dbUuid = data.id;
+      }
+    }
+
+    if (!dbUuid) {
+      console.warn(`[Supabase Table Status Warning] Could not resolve table UUID for: "${tableId}"`);
+      return null;
+    }
+
     const { data, error } = await supabase
       .from("restaurant_tables")
       .update({ status })
-      .eq("id", tableId)
+      .eq("id", dbUuid)
       .select();
 
     if (error) throw error;
-    logApi("updateRestaurantTableStatus", { tableId, status });
+    logApi("updateRestaurantTableStatus", { dbUuid, status });
     return data?.[0];
   } catch (err) {
     logApi("updateRestaurantTableStatus", { tableId, status }, err);
@@ -729,4 +750,201 @@ export const subscribeToRealtimeChanges = (onDataChange) => {
   return () => {
     supabase.removeChannel(channel);
   };
+};
+
+// ── RESERVATIONS API ──
+
+/**
+ * Checks if a table has any confirmed overlapping reservation in the given window.
+ * Returns true if the table IS available (no overlap), false if double-booked.
+ */
+export const checkTableAvailability = async (tableId, startTime, endTime) => {
+  try {
+    const { data, error } = await supabase
+      .from("reservations")
+      .select("id")
+      .eq("table_id", tableId)
+      .eq("status", "confirmed")
+      .lt("start_time", endTime)
+      .gt("end_time", startTime);
+    if (error) throw error;
+    return (data || []).length === 0;
+  } catch (err) {
+    logApi("checkTableAvailability", { tableId }, err);
+    return false;
+  }
+};
+
+/**
+ * Creates a reservation after verifying no time overlap exists.
+ * Default slot: 90 minutes. Pass durationMinutes to override.
+ */
+export const createReservation = async ({
+  customerName, customerPhone, tableId, startTime, endTime, guestCount = 2, durationMinutes = 90,
+}) => {
+  try {
+    const start = new Date(startTime);
+    const end = endTime ? new Date(endTime) : new Date(start.getTime() + durationMinutes * 60 * 1000);
+    const isAvailable = await checkTableAvailability(tableId, start.toISOString(), end.toISOString());
+    if (!isAvailable) {
+      return { error: "TABLE_DOUBLE_BOOKED", message: "This table is already reserved for that time slot." };
+    }
+    const { data, error } = await supabase
+      .from("reservations")
+      .insert([{
+        customer_name: customerName,
+        customer_phone: customerPhone || "",
+        table_id: tableId,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        guest_count: guestCount,
+        status: "confirmed",
+      }])
+      .select();
+    if (error) throw error;
+    await supabase.from("restaurant_tables").update({ status: "reserved" }).eq("id", tableId);
+    logApi("createReservation", data?.[0]);
+    return { data: data?.[0] };
+  } catch (err) {
+    logApi("createReservation", { customerName, tableId }, err);
+    return { error: "UNKNOWN", message: err.message };
+  }
+};
+
+/** Fetches all non-cancelled reservations for a given date string (YYYY-MM-DD). */
+export const fetchReservations = async (dateString) => {
+  try {
+    const date = dateString ? new Date(dateString) : new Date();
+    const startOfDay = new Date(date); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date); endOfDay.setHours(23, 59, 59, 999);
+    const { data, error } = await supabase
+      .from("reservations")
+      .select("*, restaurant_tables(table_number, capacity)")
+      .gte("start_time", startOfDay.toISOString())
+      .lte("start_time", endOfDay.toISOString())
+      .neq("status", "cancelled")
+      .order("start_time", { ascending: true });
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    logApi("fetchReservations", { dateString }, err);
+    return [];
+  }
+};
+
+/** Fetches reservations for a specific table on a date. */
+export const fetchTableReservations = async (tableId, dateString) => {
+  try {
+    const date = dateString ? new Date(dateString) : new Date();
+    const startOfDay = new Date(date); startOfDay.setHours(0, 0, 0, 0);
+    const endOfDay = new Date(date); endOfDay.setHours(23, 59, 59, 999);
+    const { data, error } = await supabase
+      .from("reservations")
+      .select("*")
+      .eq("table_id", tableId)
+      .gte("start_time", startOfDay.toISOString())
+      .lte("start_time", endOfDay.toISOString())
+      .neq("status", "cancelled");
+    if (error) throw error;
+    return data || [];
+  } catch (err) {
+    logApi("fetchTableReservations", { tableId }, err);
+    return [];
+  }
+};
+
+/** Cancels a reservation by ID. */
+export const cancelReservation = async (reservationId) => {
+  try {
+    const { data, error } = await supabase
+      .from("reservations")
+      .update({ status: "cancelled" })
+      .eq("id", reservationId)
+      .select();
+    if (error) throw error;
+    logApi("cancelReservation", { reservationId });
+    return data?.[0];
+  } catch (err) {
+    logApi("cancelReservation", { reservationId }, err);
+    return null;
+  }
+};
+
+// ── PRE-ORDER API ──
+
+/** Creates a queued pre-order with no table assigned yet. */
+export const createPreOrder = async ({ customerName, customerPhone, items, totalAmount, notes }) => {
+  try {
+    const preorderTicket = `PRE-${Math.floor(1000 + Math.random() * 9000)}`;
+    const orderItems = (items || []).map((i) => ({
+      id: `oi-pre-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      menuItemId: i.menuItemId || i.id,
+      name: i.name,
+      price: i.price,
+      qty: i.qty,
+      customizations: i.customizations || [],
+    }));
+    const { data, error } = await supabase
+      .from("orders")
+      .insert([{
+        customer_name: customerName || "Guest",
+        customer_phone: customerPhone || "",
+        table_id: null,
+        items: orderItems,
+        total_amount: totalAmount || 0,
+        order_status: "New",
+        payment_status: "Unpaid",
+        is_preorder: true,
+        preorder_ticket: preorderTicket,
+        notes: notes || "",
+        guests: 1,
+      }])
+      .select();
+    if (error) throw error;
+    logApi("createPreOrder", { preorderTicket, customerName });
+    return { data: data?.[0], ticket: preorderTicket };
+  } catch (err) {
+    logApi("createPreOrder", { customerName }, err);
+    return { error: err.message };
+  }
+};
+
+/** Assigns a queued pre-order to an available table. */
+export const assignPreOrderToTable = async (orderId, tableId) => {
+  try {
+    const { data: orderData, error: orderError } = await supabase
+      .from("orders")
+      .update({ table_id: tableId, is_preorder: false, order_status: "New" })
+      .eq("id", orderId)
+      .select();
+    if (orderError) throw orderError;
+    const { error: tableError } = await supabase
+      .from("restaurant_tables")
+      .update({ status: "occupied" })
+      .eq("id", tableId);
+    if (tableError) throw tableError;
+    logApi("assignPreOrderToTable", { orderId, tableId });
+    return { data: orderData?.[0] };
+  } catch (err) {
+    logApi("assignPreOrderToTable", { orderId, tableId }, err);
+    return { error: err.message };
+  }
+};
+
+/** Fetches all pending pre-orders (is_preorder=true, table_id=null). */
+export const fetchQueuedPreOrders = async () => {
+  try {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("*")
+      .eq("is_preorder", true)
+      .is("table_id", null)
+      .order("created_at", { ascending: true });
+    if (error) throw error;
+    logApi("fetchQueuedPreOrders", { count: data?.length });
+    return data || [];
+  } catch (err) {
+    logApi("fetchQueuedPreOrders", null, err);
+    return [];
+  }
 };

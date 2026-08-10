@@ -13,7 +13,8 @@ import {
   QrCode,
   Cpu,
   UserCheck,
-  LogOut
+  LogOut,
+  Ticket
 } from "lucide-react";
 
 export const Navbar = () => {
@@ -125,6 +126,14 @@ export const Navbar = () => {
         >
           <QrCode size={15} />
           <span>QR Generator</span>
+        </button>
+
+        <button
+          className={`nav-tab ${activeTab === "pre_order_queue" ? "active" : ""}`}
+          onClick={() => setActiveTab("pre_order_queue")}
+        >
+          <Ticket size={15} />
+          <span>Pre-Orders</span>
         </button>
       </nav>
 
