@@ -576,6 +576,26 @@ export const createOrderInDb = async ({
     const finalCustomerName = customerName && customerName !== "Guest" ? customerName : (customer_name || "Guest");
     const finalCustomerPhone = customerPhone || customer_phone || "";
 
+    // 3. Attempt RPC create_complete_order first for atomic transaction
+    if (tableNumberFound) {
+      try {
+        const { data: rpcRes, error: rpcErr } = await supabase.rpc("create_complete_order", {
+          p_table_number: tableNumberFound,
+          p_customer_name: finalCustomerName,
+          p_customer_phone: finalCustomerPhone,
+          p_items: itemsList,
+          p_total: finalTotal,
+          p_notes: notes || ""
+        });
+        if (!rpcErr && rpcRes?.order_id) {
+          console.log("[Supabase RPC Success] Atomic order created:", rpcRes);
+          return { id: rpcRes.order_id, table_id: rpcRes.table_id, total: finalTotal };
+        }
+      } catch (rpcCatch) {
+        console.warn("[RPC Fallback Warning] RPC call failed, using REST fallback:", rpcCatch);
+      }
+    }
+
     const orderPayload = {
       table_id: dbTableUuid,
       customer_name: finalCustomerName,

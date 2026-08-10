@@ -354,20 +354,21 @@ export const RestoProvider = ({ children }) => {
         });
 
         if (matchingOrder) {
-          const itemsSum = (matchingOrder.items || []).reduce(
+          const itemsSum = (matchingOrder.items || matchingOrder.order_items || []).reduce(
             (s, i) => s + ((parseFloat(i.price) || 0) * (parseInt(i.qty || i.quantity, 10) || 1)),
             0
           );
-          const computedTotal = Math.max(parseFloat(matchingOrder.totalAmount) || 0, itemsSum);
+          const orderTotalRaw = parseFloat(matchingOrder.total || matchingOrder.totalAmount || matchingOrder.total_price) || 0;
+          const computedTotal = orderTotalRaw > 0 ? orderTotalRaw : itemsSum;
 
           return {
             ...t,
             status: t.status === "needs_cleaning" ? "needs_cleaning" : (t.status === "awaiting_payment" ? "awaiting_payment" : "occupied"),
             orderId: matchingOrder.id,
-            activeOrderTotal: computedTotal,
-            customerName: matchingOrder.customerName || t.customerName || "Customer",
-            customerPhone: matchingOrder.customerPhone || t.customerPhone || "",
-            isPaid: matchingOrder.paymentStatus === "Paid" || t.status === "awaiting_payment"
+            activeOrderTotal: computedTotal > 0 ? computedTotal : (parseFloat(t.activeOrderTotal) || 0),
+            customerName: matchingOrder.customerName || matchingOrder.customer_name || t.customerName || "Customer",
+            customerPhone: matchingOrder.customerPhone || matchingOrder.customer_phone || t.customerPhone || "",
+            isPaid: matchingOrder.paymentStatus === "Paid" || matchingOrder.payment_status === "Paid" || t.status === "awaiting_payment"
           };
         }
 
