@@ -528,10 +528,10 @@ export const RestoProvider = ({ children }) => {
     window.addEventListener("focus", handleMobileWakeup);
     window.addEventListener("online", handleMobileWakeup);
 
-    // 5-second HTTP Polling Fallback for Mobile Background & Data Saver modes
+    // 3-second HTTP Polling Fallback for Dashboard, Table Map & Realtime Auto-Refresh
     const pollInterval = setInterval(() => {
       loadSupabaseData();
-    }, 5000);
+    }, 3000);
 
     return () => {
       document.removeEventListener("visibilitychange", handleMobileWakeup);

@@ -666,12 +666,33 @@
           transformDoneToLogout();
         });
         observer.observe(document.body, { childList: true, subtree: true });
+        // 3-Second Auto-Refresh for Captive Customer Portal (Syncs KDS order status changes live)
+        async function fetchLiveStatusCaptivePortal() {
+          try {
+            const tblNum = getURLTableNumber();
+            if (!tblNum) return;
+            const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY };
+            const res = await fetch(SB_URL + `/rest/v1/orders?select=*,restaurant_tables!inner(table_number)&restaurant_tables.table_number=eq.${tblNum}&order=created_at.desc&limit=1`, { headers });
+            if (res.ok) {
+              const data = await res.json();
+              if (data && data[0]) {
+                const statusTag = document.getElementById("portal-order-status-badge");
+                if (statusTag) {
+                  statusTag.textContent = (data[0].order_status || "NEW").toUpperCase();
+                }
+              }
+            }
+          } catch (e) {}
+        }
+
         setInterval(() => {
           injectControlBar();
           transformDoneToLogout();
-        }, 300);
+          fetchLiveStatusCaptivePortal();
+        }, 3000);
         injectControlBar();
         transformDoneToLogout();
+        fetchLiveStatusCaptivePortal();
       })();
     </script>
   </body>
