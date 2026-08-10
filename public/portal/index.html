@@ -9,5 +9,195 @@
   </head>
   <body>
     <div id="root"></div>
+
+    <script>
+      (function() {
+        const SB_URL = "https://juohiqxcfzququtuzxme.supabase.co";
+        const SB_KEY = "sb_publishable_GLqjcXd0gGy58SzO01eO0Q_Yu5_Tc-h";
+
+        function injectControlBar() {
+          if (document.getElementById("portal-control-header")) return;
+
+          // Find the SELECT YOUR TABLE container
+          const allSpans = Array.from(document.querySelectorAll("span"));
+          const tableSpan = allSpans.find(el => el.textContent.includes("SELECT YOUR TABLE NUMBER"));
+          if (!tableSpan) return;
+
+          const tableContainer = tableSpan.closest("div.w-full");
+          if (!tableContainer || !tableContainer.parentNode) return;
+
+          const headerBox = document.createElement("div");
+          headerBox.id = "portal-control-header";
+          headerBox.style.cssText = "display: flex; gap: 10px; width: 100%; margin-bottom: 16px;";
+          headerBox.innerHTML = `
+            <button id="portal-btn-preorder" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 12px; border-radius: 16px; background: linear-gradient(135deg, #F59E0B, #D97706); color: #ffffff; font-weight: 800; font-size: 13px; border: none; cursor: pointer; box-shadow: 0 4px 14px rgba(245,158,11,0.35); transition: transform 0.15s;">
+              <span>🛒</span> <span>Pre-Order Food</span>
+            </button>
+            <button id="portal-btn-reserve" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 12px; border-radius: 16px; background: linear-gradient(135deg, #6366F1, #4F46E5); color: #ffffff; font-weight: 800; font-size: 13px; border: none; cursor: pointer; box-shadow: 0 4px 14px rgba(99,102,241,0.35); transition: transform 0.15s;">
+              <span>📅</span> <span>Reserve Table</span>
+            </button>
+          `;
+
+          tableContainer.parentNode.insertBefore(headerBox, tableContainer);
+
+          // Handle Pre-Order click
+          document.getElementById("portal-btn-preorder").addEventListener("click", function() {
+            const startBtn = Array.from(document.querySelectorAll("button")).find(b => b.textContent.includes("START ORDERING"));
+            if (startBtn) startBtn.click();
+          });
+
+          // Handle Reserve Table click
+          document.getElementById("portal-btn-reserve").addEventListener("click", function() {
+            openReserveModal();
+          });
+        }
+
+        function openReserveModal() {
+          if (document.getElementById("portal-reserve-modal")) return;
+
+          const modal = document.createElement("div");
+          modal.id = "portal-reserve-modal";
+          modal.style.cssText = "position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); display: flex; align-items: flex-end; justify-content: center; z-index: 99999; padding: 0;";
+
+          let selectedDate = new Date().toISOString().split("T")[0];
+          let selectedTime = "19:00";
+          let guestCount = 2;
+          let selectedTableNum = null;
+
+          function renderModalContent(contentHtml) {
+            modal.innerHTML = `
+              <div style="background: #ffffff; border-top-left-radius: 24px; border-top-right-radius: 24px; padding: 24px 20px 32px; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; text-align: left; font-family: system-ui, -apple-system, sans-serif;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #F0EEE6; padding-bottom: 12px;">
+                  <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #1A1A1A; display: flex; align-items: center; gap: 8px;">
+                    <span>📅</span> Reserve a Table
+                  </h3>
+                  <button id="close-res-modal" style="width: 32px; height: 32px; border-radius: 50%; background: #F5F3EF; color: #8A8475; border: none; font-weight: 800; cursor: pointer;">✕</button>
+                </div>
+                ${contentHtml}
+              </div>
+            `;
+            document.getElementById("close-res-modal").onclick = () => modal.remove();
+          }
+
+          function getFormHtml() {
+            const timeSlotsHtml = ["12:00", "13:00", "14:00", "18:00", "19:00", "20:00", "21:00", "22:00"].map(t => `
+              <button type="button" class="slot-btn" data-time="${t}" style="padding: 8px 4px; border-radius: 10px; border: 1px solid ${selectedTime === t ? '#234A3B' : '#E5E2D9'}; background: ${selectedTime === t ? '#234A3B' : '#F9F8F6'}; color: ${selectedTime === t ? '#ffffff' : '#5C574E'}; font-size: 12px; font-weight: 700; cursor: pointer;">${t}</button>
+            `).join("");
+
+            const tablesHtml = Array.from({length: 20}, (_, i) => i + 1).map(tNum => `
+              <button type="button" class="t-btn" data-[#]="tNum" data-tnum="${tNum}" style="padding: 10px 4px; border-radius: 12px; border: 2px solid ${selectedTableNum === tNum ? '#234A3B' : '#E5E2D9'}; background: ${selectedTableNum === tNum ? '#234A3B' : '#ffffff'}; color: ${selectedTableNum === tNum ? '#ffffff' : '#2D2D2D'}; font-size: 13px; font-weight: 800; cursor: pointer;">
+                <span style="font-size: 9px; display: block; opacity: 0.7;">TABLE</span> ${tNum}
+              </button>
+            `).join("");
+
+            return `
+              <div style="display: flex; flex-direction: column; gap: 16px;">
+                <div>
+                  <label style="display: block; font-size: 11px; font-weight: 900; text-transform: uppercase; color: #8A8475; margin-bottom: 6px;">Date</label>
+                  <input type="date" id="res-date-inp" value="${selectedDate}" min="${new Date().toISOString().split("T")[0]}" style="width: 100%; padding: 12px; border-radius: 12px; border: 1px solid #E5E2D9; background: #F9F8F6; font-size: 14px; font-weight: 700; color: #1A1A1A; box-sizing: border-box;" />
+                </div>
+
+                <div>
+                  <label style="display: block; font-size: 11px; font-weight: 900; text-transform: uppercase; color: #8A8475; margin-bottom: 6px;">Time Slot (90 Min)</label>
+                  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px;">${timeSlotsHtml}</div>
+                </div>
+
+                <div>
+                  <label style="display: block; font-size: 11px; font-weight: 900; text-transform: uppercase; color: #8A8475; margin-bottom: 6px;">Guests</label>
+                  <div style="display: flex; align-items: center; gap: 12px;">
+                    <button type="button" id="guest-minus" style="width: 36px; height: 36px; border-radius: 12px; background: #F5F3EF; border: 1px solid #E5E2D9; font-weight: 800; font-size: 16px; cursor: pointer;">-</button>
+                    <span id="guest-count-val" style="font-size: 16px; font-weight: 800; color: #1A1A1A; min-width: 24px; text-align: center;">${guestCount}</span>
+                    <button type="button" id="guest-plus" style="width: 36px; height: 36px; border-radius: 12px; background: #F5F3EF; border: 1px solid #E5E2D9; font-weight: 800; font-size: 16px; cursor: pointer;">+</button>
+                    <span style="font-size: 13px; color: #8A8475;">Guests</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label style="display: block; font-size: 11px; font-weight: 900; text-transform: uppercase; color: #8A8475; margin-bottom: 6px;">Select Table</label>
+                  <div style="display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; max-height: 150px; overflow-y: auto;">${tablesHtml}</div>
+                </div>
+
+                <button type="button" id="confirm-res-btn" style="width: 100%; padding: 14px; border-radius: 16px; border: none; background: ${selectedTableNum ? '#234A3B' : '#E5E2D9'}; color: ${selectedTableNum ? '#ffffff' : '#8A8475'}; font-size: 13px; font-weight: 800; cursor: ${selectedTableNum ? 'pointer' : 'not-allowed'}; margin-top: 8px;">
+                  ${selectedTableNum ? `Confirm Reservation (Table ${selectedTableNum})` : 'Select a Table First'}
+                </button>
+              </div>
+            `;
+          }
+
+          function attachModalEvents() {
+            document.querySelectorAll(".slot-btn").forEach(b => {
+              b.onclick = () => { selectedTime = b.dataset.time; updateView(); };
+            });
+            document.querySelectorAll(".t-btn").forEach(b => {
+              b.onclick = () => { selectedTableNum = parseInt(b.dataset.tnum, 10); updateView(); };
+            });
+            const minus = document.getElementById("guest-minus");
+            const plus = document.getElementById("guest-plus");
+            if (minus) minus.onclick = () => { guestCount = Math.max(1, guestCount - 1); updateView(); };
+            if (plus) plus.onclick = () => { guestCount = Math.min(12, guestCount + 1); updateView(); };
+
+            const dateInp = document.getElementById("res-date-inp");
+            if (dateInp) dateInp.onchange = (e) => { selectedDate = e.target.value; };
+
+            const confirmBtn = document.getElementById("confirm-res-btn");
+            if (confirmBtn && selectedTableNum) {
+              confirmBtn.onclick = async () => {
+                confirmBtn.textContent = "Confirming...";
+                confirmBtn.disabled = true;
+                try {
+                  const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" };
+                  await fetch(SB_URL + "/rest/v1/reservations", {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify({
+                      customer_name: "Guest",
+                      customer_phone: "",
+                      start_time: new Date(`${selectedDate}T${selectedTime}:00`).toISOString(),
+                      end_time: new Date(new Date(`${selectedDate}T${selectedTime}:00`).getTime() + 90 * 60 * 1000).toISOString(),
+                      guest_count: guestCount,
+                      status: "confirmed"
+                    })
+                  });
+
+                  await fetch(SB_URL + "/rest/v1/restaurant_tables?table_number=eq." + selectedTableNum, {
+                    method: "PATCH",
+                    headers,
+                    body: JSON.stringify({ status: "reserved" })
+                  });
+                } catch (e) {}
+
+                renderModalContent(`
+                  <div style="text-align: center; padding: 24px 0;">
+                    <div style="font-size: 48px; margin-bottom: 12px;">🎉</div>
+                    <h4 style="font-size: 20px; font-weight: 800; color: #234A3B; margin: 0 0 8px;">Table Reserved!</h4>
+                    <p style="font-size: 13px; color: #8A8475; margin: 0 0 20px;">
+                      Table <strong>${selectedTableNum}</strong> for <strong>${guestCount} guests</strong><br />
+                      on ${selectedDate} at ${selectedTime}.
+                    </p>
+                    <button id="res-done-btn" style="width: 100%; padding: 14px; border-radius: 16px; border: none; background: #234A3B; color: #ffffff; font-size: 13px; font-weight: 800; cursor: pointer;">
+                      Done
+                    </button>
+                  </div>
+                `);
+                document.getElementById("res-done-btn").onclick = () => modal.remove();
+              };
+            }
+          }
+
+          function updateView() {
+            renderModalContent(getFormHtml());
+            attachModalEvents();
+          }
+
+          document.body.appendChild(modal);
+          updateView();
+        }
+
+        const observer = new MutationObserver(() => injectControlBar());
+        observer.observe(document.body, { childList: true, subtree: true });
+        setInterval(injectControlBar, 1000);
+        injectControlBar();
+      })();
+    </script>
   </body>
 </html>
