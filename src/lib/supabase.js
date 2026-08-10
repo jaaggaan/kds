@@ -598,7 +598,6 @@ export const createOrderInDb = async ({
 
     const orderPayload = {
       table_id: dbTableUuid,
-      table_number: tableNumberFound,
       customer_name: finalCustomerName,
       customer_phone: finalCustomerPhone,
       order_status: "New",

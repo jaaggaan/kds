@@ -423,8 +423,7 @@
                 }));
 
                 const dbOrderPayload = {
-                  table_id: tableUuid, // UUID or null
-                  table_number: parsedTableNum, // Integer table number
+                  table_id: tableUuid,
                   customer_name: customer.name || "Guest",
                   customer_phone: customer.phone || "",
                   total: totalAmt,
