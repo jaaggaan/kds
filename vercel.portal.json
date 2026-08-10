@@ -1,0 +1,8 @@
+{
+  "cleanUrls": false,
+  "rewrites": [
+    { "source": "/", "destination": "/public/portal/index.html" },
+    { "source": "/portal/(.*)", "destination": "/public/portal/$1" },
+    { "source": "/(.*)", "destination": "/public/portal/$1" }
+  ]
+}
