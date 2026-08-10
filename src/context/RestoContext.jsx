@@ -73,6 +73,13 @@ export const RestoProvider = ({ children }) => {
       const tabParam = params.get("tab");
       if (tabParam) return tabParam;
 
+      const host = window.location.hostname.toLowerCase();
+      const pathname = window.location.pathname.toLowerCase();
+
+      if (host.includes("captive-portal") || pathname.includes("/portal")) return "captive_portal";
+      if (host.includes("kds-dashboard") || pathname.includes("/kds")) return "kds";
+      if (host.includes("pos-dashboard")) return "table_map";
+
       const port = window.location.port;
       if (port === "3000") return "customer_app";
       if (port === "3001") return "table_map";
