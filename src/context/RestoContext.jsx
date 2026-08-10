@@ -342,38 +342,36 @@ export const RestoProvider = ({ children }) => {
 
       // 6. Merge ONLY live/active orders into table objects
       const synchronizedTables = loadedTables.map((t) => {
-        // Find ONLY live active (non-completed, non-cancelled) order for this table
-        const matchingOrder = allDbOrders.find(
-          (o) =>
-            (o.rawTableId === t.id ||
-             o.tableId === `T${t.number}` ||
-             o.tableId === t.id ||
-             (typeof o.tableId === "string" && o.tableId.startsWith("T") && parseInt(o.tableId.replace("T", ""), 10) === t.number)) &&
-            o.order_status !== "Completed" &&
-            o.order_status !== "Cancelled"
-        );
+        // Find live active (non-completed, non-cancelled) order for this table
+        const matchingOrder = allDbOrders.find((o) => {
+          if (o.order_status === "Completed" || o.order_status === "Cancelled") return false;
+          
+          if (o.rawTableId && String(o.rawTableId) === String(t.id)) return true;
+          if (o.tableId === `T${t.number}` || o.tableId === String(t.number) || o.tableId === t.id) return true;
+          
+          const parsedNum = parseInt(String(o.tableId || o.rawTableId || "").replace(/\D/g, ""), 10);
+          return !isNaN(parsedNum) && parsedNum === t.number;
+        });
 
-        if (t.status === "awaiting_payment") {
+        if (matchingOrder) {
+          const itemsSum = (matchingOrder.items || []).reduce(
+            (s, i) => s + ((parseFloat(i.price) || 0) * (parseInt(i.qty || i.quantity, 10) || 1)),
+            0
+          );
+          const computedTotal = Math.max(parseFloat(matchingOrder.totalAmount) || 0, itemsSum);
+
           return {
             ...t,
-            orderId: matchingOrder?.id || t.orderId || null,
-            activeOrderTotal: matchingOrder?.totalAmount || t.activeOrderTotal || 0,
-            customerName: matchingOrder?.customerName || t.customerName || "Customer",
-            isPaid: true
-          };
-        }
-
-        if (matchingOrder && t.status === "occupied") {
-          return {
-            ...t,
+            status: t.status === "needs_cleaning" ? "needs_cleaning" : (t.status === "awaiting_payment" ? "awaiting_payment" : "occupied"),
             orderId: matchingOrder.id,
-            activeOrderTotal: matchingOrder.totalAmount,
-            customerName: matchingOrder.customerName || "Customer",
-            isPaid: matchingOrder.paymentStatus === "Paid"
+            activeOrderTotal: computedTotal,
+            customerName: matchingOrder.customerName || t.customerName || "Customer",
+            customerPhone: matchingOrder.customerPhone || t.customerPhone || "",
+            isPaid: matchingOrder.paymentStatus === "Paid" || t.status === "awaiting_payment"
           };
         }
 
-        // If table status in Supabase DB is vacant or needs_cleaning, preserve DB status and clear active order data
+        // If table status in Supabase DB is vacant or needs_cleaning, clear active order data
         return {
           ...t,
           orderId: null,

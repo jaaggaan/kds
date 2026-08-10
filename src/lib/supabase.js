@@ -510,7 +510,17 @@ export const createOrderInDb = async ({
           .select("id, table_number")
           .eq("table_number", num)
           .maybeSingle();
-        if (tableData?.id) dbTableUuid = tableData.id;
+        if (tableData?.id) {
+          dbTableUuid = tableData.id;
+        } else {
+          // Auto-insert table into restaurant_tables if missing
+          const { data: newTable } = await supabase
+            .from("restaurant_tables")
+            .insert([{ table_number: num, status: "occupied" }])
+            .select()
+            .maybeSingle();
+          if (newTable?.id) dbTableUuid = newTable.id;
+        }
       }
     } else {
       const { data: tableData } = await supabase
@@ -521,7 +531,13 @@ export const createOrderInDb = async ({
       if (tableData?.table_number) tableNumberFound = tableData.table_number;
     }
 
-    console.log(`[Supabase Table Audit] Input tableId: "${tableId}" -> Table #${tableNumberFound} -> Resolved DB UUID: "${dbTableUuid}"`);
+    // 2. Calculate precise order total from items if not provided
+    const itemsList = Array.isArray(items) ? items : [];
+    const calculatedTotal = itemsList.reduce(
+      (sum, i) => sum + ((parseFloat(i.price) || 0) * (parseInt(i.qty || i.quantity, 10) || 1)),
+      0
+    );
+    const finalTotal = parseFloat(total) > 0 ? parseFloat(total) : calculatedTotal;
 
     const finalCustomerName = customerName && customerName !== "Guest" ? customerName : (customer_name || "Guest");
     const finalCustomerPhone = customerPhone || customer_phone || "";
@@ -531,7 +547,7 @@ export const createOrderInDb = async ({
       customer_name: finalCustomerName,
       customer_phone: finalCustomerPhone,
       order_status: "New",
-      total: parseFloat(total) || 0,
+      total: finalTotal,
       discount: 0,
       tax: 0,
       payment_status: "Pending"
@@ -545,13 +561,13 @@ export const createOrderInDb = async ({
     if (orderErr) throw orderErr;
     const newOrder = orderData?.[0];
 
-    console.log(`[Supabase Order Audit] Order created UUID: "${newOrder?.id}" | Assigned table_id: "${newOrder?.table_id}"`);
+    console.log(`[Supabase Order Audit] Order created UUID: "${newOrder?.id}" | Table UUID: "${newOrder?.table_id}" | Total: ₹${finalTotal}`);
 
-    if (newOrder && items && items.length > 0) {
+    if (newOrder && itemsList.length > 0) {
       // Fetch menu items to map item names to valid menu_item_id UUIDs if needed
       const { data: allMenuItems } = await supabase.from("menu_items").select("id, item_name");
 
-      const lineItemsPayload = items.map((item) => {
+      const lineItemsPayload = itemsList.map((item) => {
         let menuItemUuid = isUUID(item.menuItemId || item.id) ? item.menuItemId || item.id : null;
         if (!menuItemUuid && allMenuItems) {
           const matched = allMenuItems.find(
@@ -578,16 +594,12 @@ export const createOrderInDb = async ({
       }
     }
 
-    // Update table status to occupied for the EXACT resolved table UUID
+    // 3. Mark table status as occupied
     if (dbTableUuid) {
-      const { data: updatedTableData, error: tableUpdateErr } = await supabase
+      await supabase
         .from("restaurant_tables")
         .update({ status: "occupied" })
-        .eq("id", dbTableUuid)
-        .select();
-
-      console.log(`[Supabase Table Audit] Updated restaurant_tables row Table #${tableNumberFound} UUID "${dbTableUuid}" to status:`, updatedTableData?.[0]?.status);
-      if (tableUpdateErr) console.error(`[Supabase Table Error]`, tableUpdateErr);
+        .eq("id", dbTableUuid);
     }
 
     logApi("createOrderInDb", newOrder);

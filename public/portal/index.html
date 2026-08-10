@@ -377,14 +377,67 @@
                   }));
                 } catch (e) {}
 
-                // 2. Send to Supabase DB
+                // 2. Resolve table UUID if seated
+                let tableUuid = null;
+                const tblNum = getURLTableNumber();
+                if (tblNum) {
+                  try {
+                    const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY };
+                    const resTbl = await fetch(SB_URL + `/rest/v1/restaurant_tables?table_number=eq.${tblNum}`, { headers });
+                    if (resTbl.ok) {
+                      const tblData = await resTbl.json();
+                      if (tblData && tblData[0]) tableUuid = tblData[0].id;
+                    }
+                  } catch (e) {}
+                }
+
+                const dbOrderPayload = {
+                  table_id: tableUuid,
+                  customer_name: customer.name,
+                  customer_phone: customer.phone,
+                  total: totalAmt,
+                  order_status: "New",
+                  payment_status: "Pending",
+                  is_preorder: true,
+                  preorder_ticket: ticket
+                };
+
+                // Send Order to Supabase DB & obtain inserted order ID
                 try {
-                  const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" };
-                  await fetch(SB_URL + "/rest/v1/orders", {
+                  const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json", "Prefer": "return=representation" };
+                  const resOrd = await fetch(SB_URL + "/rest/v1/orders", {
                     method: "POST",
                     headers,
-                    body: JSON.stringify(newPreOrderObj)
+                    body: JSON.stringify(dbOrderPayload)
                   });
+
+                  if (resOrd.ok) {
+                    const ordData = await resOrd.json();
+                    const createdOrdId = ordData?.[0]?.id;
+
+                    if (createdOrdId && cart.length > 0) {
+                      const lineItemsPayload = cart.map(c => ({
+                        order_id: createdOrdId,
+                        price: c.price,
+                        quantity: c.qty,
+                        notes: c.name
+                      }));
+
+                      await fetch(SB_URL + "/rest/v1/order_items", {
+                        method: "POST",
+                        headers,
+                        body: JSON.stringify(lineItemsPayload)
+                      });
+                    }
+
+                    if (tableUuid) {
+                      await fetch(SB_URL + `/rest/v1/restaurant_tables?id=eq.${tableUuid}`, {
+                        method: "PATCH",
+                        headers,
+                        body: JSON.stringify({ status: "occupied" })
+                      });
+                    }
+                  }
                 } catch (e) {}
 
                 renderPreOrderView(`

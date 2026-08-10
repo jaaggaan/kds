@@ -343,13 +343,27 @@
 
         data.forEach(item => {
           const itemID = String(item.id);
-          const tblNum = item.restaurant_tables ? item.restaurant_tables.table_number : (item.table_id || '1');
+          let tblNum = '1';
+          if (item.restaurant_tables && item.restaurant_tables.table_number) {
+            tblNum = item.restaurant_tables.table_number;
+          } else if (item.table_id) {
+            const p = parseInt(String(item.table_id).replace(/\D/g, ""), 10);
+            if (!isNaN(p) && p > 0) tblNum = p;
+          }
+
           const statusStr = (item.order_status || '').toLowerCase();
           const isServedOrPaid = statusStr === 'served' || statusStr === 'completed' || (item.payment_status || '').toLowerCase() === 'paid';
 
-          const parsedItems = Array.isArray(item.order_items) && item.order_items.length > 0
-            ? item.order_items.map(i => [String(i.quantity || 1), String(i.menu_items?.item_name || i.menu_items?.name || 'Item'), i.notes ? [i.notes] : []])
-            : [['1', 'Truffles Special', []]];
+          let parsedItems = [];
+          if (Array.isArray(item.order_items) && item.order_items.length > 0) {
+            parsedItems = item.order_items.map(i => [
+              String(i.quantity || 1),
+              String(i.menu_items?.item_name || i.menu_items?.name || i.notes || 'Delicious Dish'),
+              i.notes && i.menu_items ? [i.notes] : []
+            ]);
+          } else {
+            parsedItems = [['1', 'Truffles Meal', []]];
+          }
 
           if (isServedOrPaid) {
             if (!servedOrders.some(s => String(s.id) === itemID)) {
