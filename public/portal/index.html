@@ -20,6 +20,58 @@
         const SB_URL = "https://juohiqxcfzququtuzxme.supabase.co";
         const SB_KEY = "sb_publishable_GLqjcXd0gGy58SzO01eO0Q_Yu5_Tc-h";
 
+        // URL & Context Table Number Parsing (?table=16, ?t=16, ?table_number=16)
+        function getURLTableNumber() {
+          try {
+            const params = new URLSearchParams(window.location.search);
+            const val = params.get("table") || params.get("t") || params.get("table_number");
+            if (val) {
+              const num = parseInt(val.replace(/\D/g, ""), 10);
+              if (!isNaN(num) && num > 0) return num;
+            }
+          } catch (e) {}
+
+          // Fallback to localStorage
+          try {
+            const stored = localStorage.getItem("truffles_selected_table") || localStorage.getItem("truffles_guest_table");
+            if (stored) {
+              const num = parseInt(String(stored).replace(/\D/g, ""), 10);
+              if (!isNaN(num) && num > 0) return num;
+            }
+          } catch (e) {}
+
+          return null; // Fallback to Table Selection UI
+        }
+
+        // Robust Mobile Network Submission with 3 Retries over HTTPS REST
+        async function submitOrderPayloadWithRetry(payload, maxRetries = 3) {
+          const headers = {
+            "apikey": SB_KEY,
+            "Authorization": "Bearer " + SB_KEY,
+            "Content-Type": "application/json"
+          };
+
+          for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+              const res = await fetch(SB_URL + "/rest/v1/orders", {
+                method: "POST",
+                headers,
+                body: JSON.stringify(payload)
+              });
+
+              if (res.ok) {
+                return await res.json();
+              }
+            } catch (err) {
+              console.warn(`[Mobile Submission Retry ${attempt}/${maxRetries}] Network submission failed:`, err);
+              if (attempt < maxRetries) {
+                await new Promise(r => setTimeout(r, attempt * 1000));
+              }
+            }
+          }
+          throw new Error("NETWORK_SUBMISSION_FAILED");
+        }
+
         function getLoggedInCustomer() {
           let name = "";
           let phone = "";

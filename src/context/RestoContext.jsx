@@ -505,10 +505,10 @@ export const RestoProvider = ({ children }) => {
     loadSupabaseData();
   }, [loadSupabaseData]);
 
-  // Subscribe to Supabase Realtime changes across all tables
+  // Subscribe to Supabase Realtime WSS changes across all tables
   useEffect(() => {
     const unsubscribe = subscribeToRealtimeChanges((table, payload) => {
-      console.log(`[Realtime Sync] ${table}:`, payload);
+      console.log(`[Realtime WSS Sync] ${table}:`, payload);
       if (table === "restaurant_tables" && payload?.new?.status === "needs_cleaning") {
         markTableNeedsCleaningAndStartTimer(payload.new.id);
       }
@@ -516,6 +516,32 @@ export const RestoProvider = ({ children }) => {
     });
     return () => unsubscribe();
   }, [loadSupabaseData, markTableNeedsCleaningAndStartTimer]);
+
+  // Mobile Reconnection Lifecycle (visibilitychange + focus + online) & 5-Second HTTP Polling Fallback
+  useEffect(() => {
+    const handleMobileWakeup = () => {
+      if (document.visibilityState === "visible") {
+        console.log("[Mobile Lifecycle] Screen wake / Tab focus restored. Re-syncing database & real-time socket...");
+        loadSupabaseData();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleMobileWakeup);
+    window.addEventListener("focus", handleMobileWakeup);
+    window.addEventListener("online", handleMobileWakeup);
+
+    // 5-second HTTP Polling Fallback for Mobile Background & Data Saver modes
+    const pollInterval = setInterval(() => {
+      loadSupabaseData();
+    }, 5000);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleMobileWakeup);
+      window.removeEventListener("focus", handleMobileWakeup);
+      window.removeEventListener("online", handleMobileWakeup);
+      clearInterval(pollInterval);
+    };
+  }, [loadSupabaseData]);
 
   // Process incoming cross-port events from Captive Portal via localStorage
   const processEvent = useCallback((payload) => {

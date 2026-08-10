@@ -330,31 +330,81 @@
       }
     }
 
-    broadcastChannel.onmessage = (event) => processIncomingEvent(event.data);
+    const SB_URL = "https://juohiqxcfzququtuzxme.supabase.co";
+    const SB_KEY = "sb_publishable_GLqjcXd0gGy58SzO01eO0Q_Yu5_Tc-h";
 
-    setInterval(() => {
+    async function fetchSupabaseOrdersKDS() {
       try {
-        loadStorageOrders();
-        const raw = localStorage.getItem("truffles_last_event");
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (parsed && parsed.timestamp && parsed.timestamp > lastProcessedTs) {
-            lastProcessedTs = parsed.timestamp;
-            processIncomingEvent(parsed);
+        const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY };
+        const res = await fetch(SB_URL + "/rest/v1/orders?select=*,order_items(*,menu_items(*)),restaurant_tables(*)&order=created_at.desc", { headers });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!Array.isArray(data)) return;
+
+        data.forEach(item => {
+          const itemID = String(item.id);
+          const tblNum = item.restaurant_tables ? item.restaurant_tables.table_number : (item.table_id || '1');
+          const statusStr = (item.order_status || '').toLowerCase();
+          const isServedOrPaid = statusStr === 'served' || statusStr === 'completed' || (item.payment_status || '').toLowerCase() === 'paid';
+
+          const parsedItems = Array.isArray(item.order_items) && item.order_items.length > 0
+            ? item.order_items.map(i => [String(i.quantity || 1), String(i.menu_items?.item_name || i.menu_items?.name || 'Item'), i.notes ? [i.notes] : []])
+            : [['1', 'Truffles Special', []]];
+
+          if (isServedOrPaid) {
+            if (!servedOrders.some(s => String(s.id) === itemID)) {
+              servedOrders.unshift({
+                id: itemID,
+                table: String(tblNum),
+                status: 'served',
+                time: item.created_at ? new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                servedAt: 'Served',
+                age: 0,
+                items: parsedItems,
+                notes: item.notes || ''
+              });
+            }
+          } else {
+            const existing = orders.find(o => String(o.id) === itemID);
+            if (!existing && !servedOrders.some(s => String(s.id) === itemID)) {
+              orders.push({
+                id: itemID,
+                table: String(tblNum),
+                status: statusStr === 'ready' ? 'ready' : 'preparing',
+                time: item.created_at ? new Date(item.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                age: item.created_at ? Math.max(1, Math.floor((Date.now() - new Date(item.created_at).getTime()) / 60000)) : 1,
+                items: parsedItems,
+                notes: item.notes || ''
+              });
+              playNewOrderChime();
+            }
           }
-        }
+        });
         render();
       } catch (e) {}
-    }, 500);
+    }
 
+    // 5-Second HTTP Polling Fallback for Mobile Network & Background Throttling
     setInterval(() => {
-      orders.forEach(o => { if (o.status === 'preparing' && !o.onHold) o.age++; });
-      document.querySelectorAll('[data-order]').forEach(el => {
-        const o = orders.find(x => String(x.id) === String(el.dataset.order));
-        if (o) el.textContent = String(o.age).padStart(2,'0') + ':00';
-      });
-    }, 60000);
+      fetchSupabaseOrdersKDS();
+    }, 5000);
 
+    // Mobile Reconnection Lifecycle: Re-fetch & reconnect on tab wake / screen focus / online
+    function handleKDSMobileReconnect() {
+      if (document.visibilityState === 'visible') {
+        console.log('[KDS Mobile Lifecycle] Screen wake / tab regain focus. Fetching fresh orders...');
+        fetchSupabaseOrdersKDS();
+        loadStorageOrders();
+        render();
+      }
+    }
+
+    document.addEventListener('visibilitychange', handleKDSMobileReconnect);
+    window.addEventListener('focus', handleKDSMobileReconnect);
+    window.addEventListener('online', handleKDSMobileReconnect);
+
+    // Initial load
+    fetchSupabaseOrdersKDS();
     render();
   </script>
 </body>
