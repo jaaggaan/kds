@@ -392,6 +392,18 @@
                   parsedTableNum = null;
                 }
 
+                if (parsedTableNum === null) {
+                  try {
+                    const storedTab = customer.tableNum || customer.selectedTable || localStorage.getItem("truffles_selected_table");
+                    if (storedTab) {
+                      const num = parseInt(String(storedTab).replace(/\D/g, ""), 10);
+                      if (!isNaN(num) && num > 0) parsedTableNum = num;
+                    }
+                  } catch (e) {}
+                }
+
+                if (parsedTableNum === null) parsedTableNum = 1; // Default fallback to Table 1
+
                 if (parsedTableNum !== null) {
                   try {
                     const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY };
