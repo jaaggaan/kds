@@ -1,8 +1,5 @@
 {
-  "cleanUrls": false,
-  "routes": [
-    { "src": "/portal/index.html", "dest": "/portal/index.html" },
-    { "src": "/", "dest": "/portal/index.html" },
-    { "src": "/(.*)", "dest": "/portal/$1" }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }

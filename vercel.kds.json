@@ -1,8 +1,5 @@
 {
-  "cleanUrls": false,
-  "routes": [
-    { "src": "/", "dest": "/kds/index.html" },
-    { "src": "/kds/index.html", "dest": "/kds/index.html" },
-    { "src": "/(.*)", "dest": "/kds/$1" }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/kds/index.html" }
   ]
 }
