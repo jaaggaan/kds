@@ -1,8 +1,8 @@
 {
   "cleanUrls": false,
   "routes": [
-    { "src": "/portal/index.html", "dest": "/portal/index.html" },
-    { "src": "/", "dest": "/portal/index.html" },
-    { "src": "/(.*)", "dest": "/portal/$1" }
+    { "src": "/", "dest": "/kds/index.html" },
+    { "src": "/kds/index.html", "dest": "/kds/index.html" },
+    { "src": "/(.*)", "dest": "/kds/$1" }
   ]
 }
