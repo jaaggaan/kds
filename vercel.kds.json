@@ -2,7 +2,9 @@
   "cleanUrls": false,
   "rewrites": [
     { "source": "/", "destination": "/public/kds/index.html" },
+    { "source": "/kds/index.html", "destination": "/public/kds/index.html" },
     { "source": "/kds/(.*)", "destination": "/public/kds/$1" },
-    { "source": "/(.*)", "destination": "/public/kds/$1" }
+    { "source": "/portal/(.*)", "destination": "/public/portal/$1" },
+    { "source": "/dashboard(.*)", "destination": "/index.html" }
   ]
 }

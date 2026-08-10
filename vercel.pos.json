@@ -2,7 +2,8 @@
   "cleanUrls": false,
   "rewrites": [
     { "source": "/", "destination": "/index.html" },
-    { "source": "/dashboard/(.*)", "destination": "/index.html" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/dashboard(.*)", "destination": "/index.html" },
+    { "source": "/portal/(.*)", "destination": "/public/portal/$1" },
+    { "source": "/kds/(.*)", "destination": "/public/kds/$1" }
   ]
 }

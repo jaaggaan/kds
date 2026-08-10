@@ -1,8 +1,10 @@
 {
   "cleanUrls": false,
-  "routes": [
-    { "src": "/portal/(.*)", "dest": "/portal/$1" },
-    { "src": "/kds/(.*)", "dest": "/kds/$1" },
-    { "src": "/(.*)", "dest": "/$1" }
+  "rewrites": [
+    { "source": "/", "destination": "/public/portal/index.html" },
+    { "source": "/portal/index.html", "destination": "/public/portal/index.html" },
+    { "source": "/portal/(.*)", "destination": "/public/portal/$1" },
+    { "source": "/kds/(.*)", "destination": "/public/kds/$1" },
+    { "source": "/dashboard(.*)", "destination": "/index.html" }
   ]
 }
