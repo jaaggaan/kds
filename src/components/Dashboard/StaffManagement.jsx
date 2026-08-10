@@ -2,47 +2,70 @@ import React, { useState } from "react";
 import { UserCheck, Plus, Trash2, Shield, Key, Phone, User, Check } from "lucide-react";
 
 export const StaffManagement = () => {
-  const [staffList, setStaffList] = useState([
-    { id: "s-1", name: "Rahul Sharma", phone: "+91 98765 11111", role: "Manager", isActive: true },
-    { id: "s-2", name: "Priya Nair", phone: "+91 98765 22222", role: "Cashier", isActive: true },
-    { id: "s-3", name: "Chef Marcus", phone: "+91 98765 33333", role: "Kitchen", isActive: true },
-    { id: "s-4", name: "Vikram Singh", phone: "+91 98765 44444", role: "Waiter", isActive: true }
-  ]);
+  const DEFAULT_STAFF = [
+    { id: "s-1", name: "Rahul Sharma", phone: "+91 98765 11111", email: "manager@truffles.com", role: "Manager", password: "manager@789", isActive: true },
+    { id: "s-2", name: "Rohan Sharma", phone: "+91 98765 22222", email: "rohan@truffles.com", role: "Waiter", password: "waiter123", isActive: true },
+    { id: "s-3", name: "Vikram Singh", phone: "+91 98765 44444", email: "vikram@truffles.com", role: "Waiter", password: "waiter123", isActive: true },
+    { id: "s-4", name: "Ananya Roy", phone: "+91 98765 55555", email: "ananya@truffles.com", role: "Waiter", password: "waiter123", isActive: true }
+  ];
+
+  const [staffList, setStaffList] = useState(() => {
+    try {
+      const stored = localStorage.getItem("truffles_staff_members");
+      return stored ? JSON.parse(stored) : DEFAULT_STAFF;
+    } catch (e) {
+      return DEFAULT_STAFF;
+    }
+  });
+
+  const saveStaffList = (newList) => {
+    setStaffList(newList);
+    try {
+      localStorage.setItem("truffles_staff_members", JSON.stringify(newList));
+    } catch (e) {}
+  };
 
   const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState("Waiter");
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState("waiter123");
   const [showAddForm, setShowAddForm] = useState(false);
 
   const handleAddStaff = (e) => {
     e.preventDefault();
     if (!name || !phone) return;
 
+    const generatedEmail = email || `${name.toLowerCase().replace(/\s+/g, "")}@truffles.com`;
+
     const newStaff = {
       id: `s-${Date.now()}`,
       name,
       phone,
+      email: generatedEmail,
       role,
+      password: password || "waiter123",
       isActive: true
     };
 
-    setStaffList([...staffList, newStaff]);
+    const updated = [newStaff, ...staffList];
+    saveStaffList(updated);
     setName("");
+    setEmail("");
     setPhone("");
-    setPassword("");
+    setPassword("waiter123");
     setShowAddForm(false);
   };
 
   const handleToggleActive = (id) => {
-    setStaffList(
-      staffList.map((s) => (s.id === id ? { ...s, isActive: !s.isActive } : s))
-    );
+    const updated = staffList.map((s) => (s.id === id ? { ...s, isActive: !s.isActive } : s));
+    saveStaffList(updated);
   };
 
   const handleDeleteStaff = (id) => {
     if (window.confirm("Are you sure you want to remove this staff account?")) {
-      setStaffList(staffList.filter((s) => s.id !== id));
+      const updated = staffList.filter((s) => s.id !== id);
+      saveStaffList(updated);
     }
   };
 

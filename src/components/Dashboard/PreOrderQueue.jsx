@@ -20,19 +20,62 @@ import {
 export const PreOrderQueue = () => {
   const { tables } = useResto();
   const [preOrders, setPreOrders] = useState([]);
+  const [historyOrders, setHistoryOrders] = useState([]);
+  const [activeTab, setActiveTab] = useState("queue"); // "queue" or "history"
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [selectedTableId, setSelectedTableId] = useState("");
   const [assigning, setAssigning] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
+  const initialLoadDone = React.useRef(false);
 
   const vacantTables = tables.filter((t) => t.status === "vacant");
 
   const loadPreOrders = useCallback(async () => {
-    setLoading(true);
-    const data = await fetchQueuedPreOrders();
-    setPreOrders(data);
+    if (!initialLoadDone.current) setLoading(true);
+
+    const dbData = await fetchQueuedPreOrders();
+
+    let localPreOrders = [];
+    let localHistory = [];
+    try {
+      const raw = localStorage.getItem("truffles_preorders");
+      if (raw) localPreOrders = JSON.parse(raw);
+
+      const rawHist = localStorage.getItem("truffles_preorders_history");
+      if (rawHist) localHistory = JSON.parse(rawHist);
+    } catch (e) {}
+
+    const mergedQueue = [...(dbData || [])];
+    localPreOrders.forEach(lp => {
+      if (!mergedQueue.some(m => (m.id && m.id === lp.id) || (m.preorder_ticket && m.preorder_ticket === lp.preorder_ticket))) {
+        mergedQueue.push(lp);
+      }
+    });
+
+    // Also fetch assigned/completed pre-orders from Supabase for history
+    let dbHistory = [];
+    try {
+      const { data: histData } = await supabase
+        .from("orders")
+        .select("*")
+        .eq("is_preorder", true)
+        .neq("order_status", "New")
+        .order("created_at", { ascending: false });
+      if (histData) dbHistory = histData;
+    } catch (e) {}
+
+    const mergedHistory = [...localHistory];
+    dbHistory.forEach(dh => {
+      if (!mergedHistory.some(h => (h.id && h.id === dh.id) || (h.preorder_ticket && h.preorder_ticket === dh.preorder_ticket))) {
+        mergedHistory.push(dh);
+      }
+    });
+
+    setPreOrders(mergedQueue);
+    setHistoryOrders(mergedHistory);
     setLoading(false);
+    initialLoadDone.current = true;
   }, []);
 
   useEffect(() => {
@@ -41,21 +84,59 @@ export const PreOrderQueue = () => {
       .channel("preorder_queue_admin")
       .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, () => loadPreOrders())
       .subscribe();
-    return () => supabase.removeChannel(channel);
+
+    const handleStorageEvent = (e) => {
+      if (e.key === "truffles_preorders" || e.key === "truffles_preorders_history" || e.key === "truffles_last_event") {
+        loadPreOrders();
+      }
+    };
+    window.addEventListener("storage", handleStorageEvent);
+
+    return () => {
+      supabase.removeChannel(channel);
+      window.removeEventListener("storage", handleStorageEvent);
+    };
   }, [loadPreOrders]);
 
   const handleAssign = async () => {
     if (!selectedOrder || !selectedTableId) return;
     setAssigning(true);
-    const result = await assignPreOrderToTable(selectedOrder.id, selectedTableId);
+
+    try {
+      await assignPreOrderToTable(selectedOrder.id, selectedTableId);
+    } catch (e) {}
+
+    const targetTableObj = tables.find(t => t.id === selectedTableId);
+    const tableLabel = targetTableObj ? `T${targetTableObj.number || targetTableObj.table_number}` : "Table";
+
+    try {
+      const raw = localStorage.getItem("truffles_preorders");
+      let historyRaw = localStorage.getItem("truffles_preorders_history");
+      let historyList = historyRaw ? JSON.parse(historyRaw) : [];
+
+      if (raw) {
+        let local = JSON.parse(raw);
+        const assignedItem = local.find(lp => lp.preorder_ticket === selectedOrder.preorder_ticket || lp.id === selectedOrder.id) || selectedOrder;
+        if (assignedItem) {
+          historyList.unshift({
+            ...assignedItem,
+            assigned_table: tableLabel,
+            assigned_at: new Date().toISOString(),
+            order_status: "Assigned"
+          });
+          localStorage.setItem("truffles_preorders_history", JSON.stringify(historyList));
+        }
+        local = local.filter(lp => lp.preorder_ticket !== selectedOrder.preorder_ticket && lp.id !== selectedOrder.id);
+        localStorage.setItem("truffles_preorders", JSON.stringify(local));
+      }
+    } catch (e) {}
+
     setAssigning(false);
-    if (result.data) {
-      setSuccessMsg(`✓ ${selectedOrder.preorder_ticket} assigned to table successfully!`);
-      setSelectedOrder(null);
-      setSelectedTableId("");
-      loadPreOrders();
-      setTimeout(() => setSuccessMsg(""), 4000);
-    }
+    setSuccessMsg(`✓ ${selectedOrder.preorder_ticket} assigned to ${tableLabel} successfully!`);
+    setSelectedOrder(null);
+    setSelectedTableId("");
+    loadPreOrders();
+    setTimeout(() => setSuccessMsg(""), 4000);
   };
 
   const getElapsed = (createdAt) => {
@@ -66,7 +147,7 @@ export const PreOrderQueue = () => {
   };
 
   return (
-    <div style={{ padding: "24px", maxWidth: "900px", margin: "0 auto" }}>
+    <div style={{ padding: "24px 32px", width: "100%", maxWidth: "1280px", margin: "0 auto", boxSizing: "border-box" }}>
       {/* Header */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "24px" }}>
         <div>
@@ -122,68 +203,158 @@ export const PreOrderQueue = () => {
         ))}
       </div>
 
-      {/* Queue List */}
+      {/* Sub-Tab Navigation Bar */}
+      <div style={{ display: "flex", gap: "10px", marginBottom: "20px", borderBottom: "1px solid #E5E7EB", paddingBottom: "12px" }}>
+        <button
+          onClick={() => setActiveTab("queue")}
+          style={{
+            padding: "8px 16px", borderRadius: "10px", border: "none",
+            background: activeTab === "queue" ? "#234A3B" : "#F3F4F6",
+            color: activeTab === "queue" ? "#ffffff" : "#4B5563",
+            fontWeight: 700, fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px"
+          }}
+        >
+          <span>⏳ Waiting Queue</span>
+          <span style={{ padding: "2px 6px", borderRadius: "10px", background: activeTab === "queue" ? "rgba(255,255,255,0.2)" : "#E5E7EB", fontSize: "11px" }}>
+            {preOrders.length}
+          </span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("history")}
+          style={{
+            padding: "8px 16px", borderRadius: "10px", border: "none",
+            background: activeTab === "history" ? "#234A3B" : "#F3F4F6",
+            color: activeTab === "history" ? "#ffffff" : "#4B5563",
+            fontWeight: 700, fontSize: "13px", cursor: "pointer", display: "flex", alignItems: "center", gap: "6px"
+          }}
+        >
+          <span>📜 History / Served</span>
+          <span style={{ padding: "2px 6px", borderRadius: "10px", background: activeTab === "history" ? "rgba(255,255,255,0.2)" : "#E5E7EB", fontSize: "11px" }}>
+            {historyOrders.length}
+          </span>
+        </button>
+      </div>
+
+      {/* Queue or History View */}
       {loading ? (
         <div style={{ textAlign: "center", padding: "48px", color: "#9CA3AF" }}>
           <p>Loading pre-orders...</p>
         </div>
-      ) : preOrders.length === 0 ? (
-        <div style={{
-          textAlign: "center", padding: "64px 24px",
-          background: "#F9FAFB", borderRadius: "16px", border: "2px dashed #E5E7EB"
-        }}>
-          <ChefHat size={48} color="#D1D5DB" style={{ marginBottom: "16px" }} />
-          <h3 style={{ color: "#6B7280", margin: "0 0 8px" }}>No Pre-Orders in Queue</h3>
-          <p style={{ color: "#9CA3AF", fontSize: "13px", margin: 0 }}>
-            When customers pre-order food before being seated, they appear here.
-          </p>
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
-          {preOrders.map((order) => {
-            const itemSummary = (order.items || []).slice(0, 2).map((i) => `${i.qty || 1}x ${i.name}`).join(", ");
-            const totalAmount = order.total_amount || (order.items || []).reduce((s, i) => s + i.price * (i.qty || 1), 0);
-            return (
-              <div key={order.id} style={{
-                display: "flex", alignItems: "center", justifyContent: "space-between",
-                padding: "16px 20px", borderRadius: "12px",
-                background: "#fff", border: "1px solid #E5E7EB", boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
-              }}>
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                    <span style={{
-                      padding: "3px 10px", borderRadius: "20px",
-                      background: "rgba(245,158,11,0.12)", color: "#D97706",
-                      fontSize: "12px", fontWeight: 800
-                    }}>{order.preorder_ticket || "PRE-???"}</span>
-                    <span style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>{order.customer_name || "Guest"}</span>
-                    {order.customer_phone && <span style={{ fontSize: "12px", color: "#6B7280" }}>{order.customer_phone}</span>}
+      ) : activeTab === "queue" ? (
+        preOrders.length === 0 ? (
+          <div style={{
+            textAlign: "center", padding: "64px 24px",
+            background: "#F9FAFB", borderRadius: "16px", border: "2px dashed #E5E7EB"
+          }}>
+            <ChefHat size={48} color="#D1D5DB" style={{ marginBottom: "16px" }} />
+            <h3 style={{ color: "#6B7280", margin: "0 0 8px" }}>No Waiting Pre-Orders in Queue</h3>
+            <p style={{ color: "#9CA3AF", fontSize: "13px", margin: 0 }}>
+              When customers pre-order food before being seated, they appear here.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {preOrders.map((order) => {
+              const itemSummary = (order.items || []).slice(0, 2).map((i) => `${i.qty || 1}x ${i.name}`).join(", ");
+              const totalAmount = order.total_amount || (order.items || []).reduce((s, i) => s + i.price * (i.qty || 1), 0);
+              return (
+                <div key={order.id} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "16px 20px", borderRadius: "12px",
+                  background: "#fff", border: "1px solid #E5E7EB", boxShadow: "0 1px 3px rgba(0,0,0,0.05)"
+                }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <span style={{
+                        padding: "3px 10px", borderRadius: "20px",
+                        background: "rgba(245,158,11,0.12)", color: "#D97706",
+                        fontSize: "12px", fontWeight: 800
+                      }}>{order.preorder_ticket || "PRE-???"}</span>
+                      <span style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>{order.customer_name || "Guest"}</span>
+                      {order.customer_phone && <span style={{ fontSize: "12px", color: "#6B7280" }}>{order.customer_phone}</span>}
+                    </div>
+                    <div style={{ fontSize: "13px", color: "#374151" }}>
+                      {itemSummary}{(order.items || []).length > 2 ? ` +${(order.items || []).length - 2} more` : ""} · ₹{totalAmount}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "#9CA3AF", fontSize: "12px" }}>
+                      <Clock size={11} /> {getElapsed(order.created_at)}
+                    </div>
                   </div>
-                  <div style={{ fontSize: "13px", color: "#374151" }}>
-                    {itemSummary}{(order.items || []).length > 2 ? ` +${(order.items || []).length - 2} more` : ""} · ₹{totalAmount}
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "4px", color: "#9CA3AF", fontSize: "12px" }}>
-                    <Clock size={11} /> {getElapsed(order.created_at)}
-                  </div>
+                  <button
+                    onClick={() => { setSelectedOrder(order); setSelectedTableId(""); }}
+                    disabled={vacantTables.length === 0}
+                    style={{
+                      display: "flex", alignItems: "center", gap: "6px",
+                      padding: "10px 18px", borderRadius: "10px",
+                      background: vacantTables.length === 0 ? "#F3F4F6" : "#6366F1",
+                      color: vacantTables.length === 0 ? "#9CA3AF" : "#fff",
+                      border: "none", cursor: vacantTables.length === 0 ? "not-allowed" : "pointer",
+                      fontSize: "13px", fontWeight: 700, whiteSpace: "nowrap"
+                    }}
+                  >
+                    <ArrowRight size={14} /> Assign Table
+                  </button>
                 </div>
-                <button
-                  onClick={() => { setSelectedOrder(order); setSelectedTableId(""); }}
-                  disabled={vacantTables.length === 0}
-                  style={{
-                    display: "flex", alignItems: "center", gap: "6px",
-                    padding: "10px 18px", borderRadius: "10px",
-                    background: vacantTables.length === 0 ? "#F3F4F6" : "#6366F1",
-                    color: vacantTables.length === 0 ? "#9CA3AF" : "#fff",
-                    border: "none", cursor: vacantTables.length === 0 ? "not-allowed" : "pointer",
-                    fontSize: "13px", fontWeight: 700, whiteSpace: "nowrap"
-                  }}
-                >
-                  <ArrowRight size={14} /> Assign Table
-                </button>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )
+      ) : (
+        /* History & Served Tab */
+        historyOrders.length === 0 ? (
+          <div style={{
+            textAlign: "center", padding: "64px 24px",
+            background: "#F9FAFB", borderRadius: "16px", border: "2px dashed #E5E7EB"
+          }}>
+            <CheckCircle size={48} color="#D1D5DB" style={{ marginBottom: "16px" }} />
+            <h3 style={{ color: "#6B7280", margin: "0 0 8px" }}>No History Available</h3>
+            <p style={{ color: "#9CA3AF", fontSize: "13px", margin: 0 }}>
+              Pre-orders that have been assigned to tables or served will appear here permanently.
+            </p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            {historyOrders.map((order) => {
+              const itemSummary = (order.items || []).slice(0, 2).map((i) => `${i.qty || 1}x ${i.name}`).join(", ");
+              const totalAmount = order.total_amount || (order.items || []).reduce((s, i) => s + i.price * (i.qty || 1), 0);
+              return (
+                <div key={order.id || order.preorder_ticket} style={{
+                  display: "flex", alignItems: "center", justifyContent: "space-between",
+                  padding: "16px 20px", borderRadius: "12px",
+                  background: "#F9FAFB", border: "1px solid #E5E7EB"
+                }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                      <span style={{
+                        padding: "3px 10px", borderRadius: "20px",
+                        background: "#DCFCE7", color: "#15803D",
+                        fontSize: "12px", fontWeight: 800
+                      }}>{order.preorder_ticket || "PRE-???"}</span>
+                      <span style={{ fontSize: "14px", fontWeight: 700, color: "#111827" }}>{order.customer_name || "Guest"}</span>
+                      {order.customer_phone && <span style={{ fontSize: "12px", color: "#6B7280" }}>{order.customer_phone}</span>}
+                    </div>
+                    <div style={{ fontSize: "13px", color: "#374151" }}>
+                      {itemSummary}{(order.items || []).length > 2 ? ` +${(order.items || []).length - 2} more` : ""} · ₹{totalAmount}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "#6B7280", fontSize: "12px" }}>
+                      <span>Assigned to {order.assigned_table || "Table"}</span>
+                      <span>•</span>
+                      <Clock size={11} /> <span>{getElapsed(order.assigned_at || order.created_at)}</span>
+                    </div>
+                  </div>
+                  <span style={{
+                    padding: "6px 14px", borderRadius: "12px",
+                    background: "#E0E7FF", color: "#3730A3",
+                    fontSize: "12px", fontWeight: 800
+                  }}>
+                    Assigned & Served
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )
       )}
 
       {/* Assignment Modal */}

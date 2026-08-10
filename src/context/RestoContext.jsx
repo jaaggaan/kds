@@ -33,6 +33,40 @@ const RestoContext = createContext(null);
 
 export const RestoProvider = ({ children }) => {
   const [currentBranch, setCurrentBranch] = useState(INITIAL_BRANCHES[0]);
+  const [currentRole, setCurrentRole] = useState(() => {
+    try {
+      return localStorage.getItem("truffles_current_role") || "Waiter";
+    } catch (e) {
+      return "Waiter";
+    }
+  });
+
+  const [activeWaiter, setActiveWaiter] = useState(() => {
+    try {
+      return localStorage.getItem("truffles_active_waiter") || null;
+    } catch (e) {
+      return null;
+    }
+  });
+
+  const handleSetActiveWaiter = (waiterName) => {
+    setActiveWaiter(waiterName);
+    try {
+      if (waiterName) {
+        localStorage.setItem("truffles_active_waiter", waiterName);
+      } else {
+        localStorage.removeItem("truffles_active_waiter");
+      }
+    } catch (e) {}
+  };
+
+  const handleSetCurrentRole = (role) => {
+    setCurrentRole(role);
+    try {
+      localStorage.setItem("truffles_current_role", role);
+    } catch (e) {}
+  };
+
   const [activeTab, setActiveTab] = useState(() => {
     try {
       const params = new URLSearchParams(window.location.search);
@@ -820,6 +854,10 @@ export const RestoProvider = ({ children }) => {
         branches: INITIAL_BRANCHES,
         currentBranch,
         setCurrentBranch,
+        currentRole,
+        setCurrentRole: handleSetCurrentRole,
+        activeWaiter,
+        setActiveWaiter: handleSetActiveWaiter,
         activeTab,
         setActiveTab: handleSetActiveTab,
         tables,

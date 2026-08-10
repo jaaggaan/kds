@@ -1,22 +1,49 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useResto } from "../../context/RestoContext";
+import { supabase, fetchReservations } from "../../lib/supabase";
 import { TableDetailModal } from "./TableDetailModal";
 import { NewOrderModal } from "./NewOrderModal";
-import { Users, Receipt, User, Phone, Sparkles } from "lucide-react";
+import { Users, Receipt, User, Phone, Sparkles, CalendarDays } from "lucide-react";
 
 export const TableMap = () => {
   const { tables, activeOrders } = useResto();
   const [selectedTableId, setSelectedTableId] = useState(null);
   const [showNewOrderModal, setShowNewOrderModal] = useState(false);
   const [filterStatus, setFilterStatus] = useState("all");
+  const [reservations, setReservations] = useState([]);
+
+  // Load reservations and subscribe to real-time updates
+  const loadReservations = async () => {
+    const data = await fetchReservations(new Date().toISOString().split("T")[0]);
+    setReservations(data || []);
+  };
+
+  useEffect(() => {
+    loadReservations();
+    const channel = supabase
+      .channel("table_map_reservations")
+      .on("postgres_changes", { event: "*", schema: "public", table: "reservations" }, () => loadReservations())
+      .on("postgres_changes", { event: "*", schema: "public", table: "restaurant_tables" }, () => loadReservations())
+      .subscribe();
+
+    return () => supabase.removeChannel(channel);
+  }, []);
 
   // Always look up the LIVE table object from context — never store a stale snapshot
   const selectedTable = selectedTableId
     ? tables.find((t) => t.id === selectedTableId) || null
     : null;
 
+  const isTableReserved = (table) => {
+    if (table.status === "reserved") return true;
+    return reservations.some(
+      (r) => (r.table_id === table.id || r.table_id === String(table.number)) && r.status === "confirmed"
+    );
+  };
+
   const filteredTables = tables.filter((t) => {
     if (filterStatus === "all") return true;
+    if (filterStatus === "reserved") return isTableReserved(t);
     return t.status === filterStatus;
   });
 
@@ -36,6 +63,14 @@ export const TableMap = () => {
       (o) => (o.tableId === table.id || o.table_id === table.id || o.tableNumber === table.number) &&
              o.status !== "Cancelled" && o.status !== "Completed" && o.payment_status !== "Paid"
     );
+
+    if (isTableReserved(table)) {
+      return (
+        <span className="table-status-tag" style={{ backgroundColor: "#D97706", color: "#ffffff", fontWeight: 700 }}>
+          RESERVED
+        </span>
+      );
+    }
 
     if (table.status === "needs_cleaning") {
       return (
@@ -118,63 +153,75 @@ export const TableMap = () => {
 
       {/* Grid View T1 to T20 */}
       <div className="tables-grid">
-        {filteredTables.map((table) => (
-          <div
-            key={table.id}
-            className={`table-card status-border-${table.status}`}
-            onClick={() => setSelectedTableId(table.id)}
-          >
-            <div className="table-card-header">
-              <span className="table-number">T{table.number || table.id}</span>
-              {renderTableBadge(table)}
-            </div>
+        {filteredTables.map((table) => {
+          const reserved = isTableReserved(table);
+          const resObj = reservations.find(
+            (r) => (r.table_id === table.id || r.table_id === String(table.number) || String(r.table_number) === String(table.number)) && r.status === "confirmed"
+          );
 
-            <div className="table-card-body">
-              {table.status === "occupied" || table.status === "awaiting_payment" ? (
-                <>
-                  <div className="card-detail-row customer-name-row" style={{ color: "var(--accent)", fontWeight: 600 }}>
-                    <User size={14} />
-                    <span>{table.customerName || "Seated Guest"}</span>
-                  </div>
-                  {table.customerPhone && (
-                    <div className="card-detail-row customer-phone-row" style={{ fontSize: "11px", color: "var(--text-muted)" }}>
-                      <Phone size={12} />
-                      <span className="price-mono">{table.customerPhone}</span>
-                    </div>
-                  )}
-                  <div className="card-detail-row">
-                    <Users size={14} />
-                    <span>{table.guests} Guests • Seated {table.seatedTime}</span>
-                  </div>
-                  <div className="card-detail-row active-total">
-                    <Receipt size={14} />
-                    <span className="total-val" style={{ color: table.isPaid ? "#16a34a" : "inherit" }}>
-                      ₹{table.activeOrderTotal} {table.isPaid ? "(Paid)" : ""}
+          return (
+            <div
+              key={table.id}
+              className={`table-card status-border-${reserved ? "reserved" : table.status}`}
+              style={reserved ? { borderLeft: "4px solid #D97706" } : {}}
+              onClick={() => setSelectedTableId(table.id)}
+            >
+              <div className="table-card-header">
+                <span className="table-number">T{table.number || table.id}</span>
+                {renderTableBadge(table)}
+              </div>
+
+              <div className="table-card-body">
+                {reserved ? (
+                  <div className="card-placeholder-text" style={{ gap: "4px" }}>
+                    <CalendarDays size={18} color="#D97706" />
+                    <span style={{ fontWeight: 700, color: "#D97706", fontSize: "13px" }}>
+                      {resObj?.customer_name || table.customerName || "Reserved Guest"}
                     </span>
+                    <small style={{ color: "#6B7280" }}>
+                      {resObj?.guest_count || 2} Guests • Reserved
+                    </small>
                   </div>
-                </>
-              ) : table.status === "reserved" ? (
-                <div className="card-placeholder-text">
-                  <User size={18} color="var(--accent)" />
-                  <span style={{ fontWeight: 600, color: "var(--text-primary)" }}>{table.customerName || "Reserved Guest"}</span>
-                  <small>{table.seatedTime}</small>
-                </div>
-              ) : table.status === "needs_cleaning" ? (
-                <div className="card-placeholder-text cleaning" style={{ gap: "6px" }}>
-                  <Sparkles size={20} color="#2563EB" style={{ animation: "pulse 1.5s ease-in-out infinite" }} />
-                  <span style={{ color: "#2563EB", fontWeight: 700, fontSize: "12px", letterSpacing: "0.08em" }}>CLEANING IN PROGRESS</span>
-                  <small style={{ color: "var(--text-muted)", fontSize: "10px" }}>Table will be ready soon</small>
-                  <small style={{ color: "var(--text-muted)", fontSize: "10px" }}>⏱ Auto-clears in 20s</small>
-                </div>
-              ) : (
-                <div className="card-placeholder-text vacant">
-                  <span>Ready to Seat</span>
-                  <small style={{ color: "var(--text-muted)", marginTop: "4px" }}>Customer Scans QR / Wi-Fi</small>
-                </div>
-              )}
+                ) : table.status === "occupied" || table.status === "awaiting_payment" ? (
+                  <>
+                    <div className="card-detail-row customer-name-row" style={{ color: "var(--accent)", fontWeight: 600 }}>
+                      <User size={14} />
+                      <span>{table.customerName || "Seated Guest"}</span>
+                    </div>
+                    {table.customerPhone && (
+                      <div className="card-detail-row customer-phone-row" style={{ fontSize: "11px", color: "var(--text-muted)" }}>
+                        <Phone size={12} />
+                        <span className="price-mono">{table.customerPhone}</span>
+                      </div>
+                    )}
+                    <div className="card-detail-row">
+                      <Users size={14} />
+                      <span>{table.guests} Guests • Seated {table.seatedTime}</span>
+                    </div>
+                    <div className="card-detail-row active-total">
+                      <Receipt size={14} />
+                      <span className="total-val" style={{ color: table.isPaid ? "#16a34a" : "inherit" }}>
+                        ₹{table.activeOrderTotal} {table.isPaid ? "(Paid)" : ""}
+                      </span>
+                    </div>
+                  </>
+                ) : table.status === "needs_cleaning" ? (
+                  <div className="card-placeholder-text cleaning" style={{ gap: "6px" }}>
+                    <Sparkles size={20} color="#2563EB" style={{ animation: "pulse 1.5s ease-in-out infinite" }} />
+                    <span style={{ color: "#2563EB", fontWeight: 700, fontSize: "12px", letterSpacing: "0.08em" }}>CLEANING IN PROGRESS</span>
+                    <small style={{ color: "var(--text-muted)", fontSize: "10px" }}>Table will be ready soon</small>
+                    <small style={{ color: "var(--text-muted)", fontSize: "10px" }}>⏱ Auto-clears in 20s</small>
+                  </div>
+                ) : (
+                  <div className="card-placeholder-text vacant">
+                    <span>Ready to Seat</span>
+                    <small style={{ color: "var(--text-muted)", marginTop: "4px" }}>Customer Scans QR / Wi-Fi</small>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Table Detail Modal — reads live table from context on every render */}

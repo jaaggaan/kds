@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { useResto } from "../../context/RestoContext";
 import {
   createReservation,
@@ -172,7 +172,14 @@ export const CustomerAppContainer = () => {
     if (result.error) {
       setResError(result.message || "This table is already reserved. Please choose another.");
     } else {
+      try {
+        await supabase
+          .from("restaurant_tables")
+          .update({ status: "reserved" })
+          .eq("id", resTableId);
+      } catch (e) {}
       setResSuccess(result.data);
+      setSelectedTable(null);
     }
   };
 
@@ -399,57 +406,71 @@ export const CustomerAppContainer = () => {
     }, 1500);
   };
 
-  const handleLogoutGuest = async () => {
-    if (window.confirm("Are you sure you want to disconnect Wi-Fi & log out of Table Session?")) {
-      const activeTableIdOrNum = selectedTable || localStorage.getItem("truffles_active_table") || localStorage.getItem("truffles_guest_table");
+  const performCompleteLogout = async (confirmNeeded = false) => {
+    if (confirmNeeded) {
+      if (!window.confirm("Are you sure you want to disconnect Wi-Fi & log out of Table Session?")) {
+        return;
+      }
+    }
 
-      if (activeTableIdOrNum) {
-        const targetTable = resolveTable(activeTableIdOrNum, tables);
-        const targetTableId = targetTable ? targetTable.id : (isUUID(activeTableIdOrNum) ? activeTableIdOrNum : null);
+    const activeTableIdOrNum = selectedTable || localStorage.getItem("truffles_active_table") || localStorage.getItem("truffles_guest_table");
 
-        try {
-          // Cancel open, unpaid orders for this table in Supabase
-          if (targetTableId) {
+    if (activeTableIdOrNum) {
+      const targetTable = resolveTable(activeTableIdOrNum, tables);
+      const targetTableId = targetTable ? targetTable.id : (isUUID(activeTableIdOrNum) ? activeTableIdOrNum : null);
+
+      try {
+        if (targetTableId) {
+          await supabase
+            .from("orders")
+            .update({ order_status: "Cancelled" })
+            .eq("table_id", targetTableId)
+            .neq("payment_status", "Paid")
+            .in("order_status", ["New", "Preparing", "Ready"]);
+        } else if (targetTable?.number) {
+          const { data: tableRow } = await supabase
+            .from("restaurant_tables")
+            .select("id")
+            .eq("table_number", targetTable.number)
+            .maybeSingle();
+
+          if (tableRow?.id) {
             await supabase
               .from("orders")
               .update({ order_status: "Cancelled" })
-              .eq("table_id", targetTableId)
+              .eq("table_id", tableRow.id)
               .neq("payment_status", "Paid")
               .in("order_status", ["New", "Preparing", "Ready"]);
-          } else if (targetTable?.number) {
-            const { data: tableRow } = await supabase
-              .from("restaurant_tables")
-              .select("id")
-              .eq("table_number", targetTable.number)
-              .maybeSingle();
-
-            if (tableRow?.id) {
-              await supabase
-                .from("orders")
-                .update({ order_status: "Cancelled" })
-                .eq("table_id", tableRow.id)
-                .neq("payment_status", "Paid")
-                .in("order_status", ["New", "Preparing", "Ready"]);
-            }
           }
-        } catch (err) {
-          console.error("Failed to cancel active orders on logout:", err);
         }
-
-        // Set table status to needs_cleaning (starts 20s auto-vacant countdown)
-        await updateTableStatus(activeTableIdOrNum, "needs_cleaning");
+      } catch (err) {
+        console.error("Failed to cancel active orders on logout:", err);
       }
 
-      // Clear all client session local storage keys
+      await updateTableStatus(activeTableIdOrNum, "needs_cleaning");
+    }
+
+    // Clear all client session local storage keys
+    try {
       localStorage.removeItem("truffles_guest_table");
       localStorage.removeItem("truffles_customer_session");
       localStorage.removeItem("truffles_active_table");
       localStorage.removeItem("truffles_customer_name");
+      localStorage.removeItem("truffles_user_info");
+      localStorage.removeItem("truffles_selected_table");
+      localStorage.removeItem("truffles_cart");
+    } catch (e) {}
 
-      setCart([]);
-      setScreen("portal");
-    }
+    setCart([]);
+    setFeedbackSubmitted(false);
+    setSelectedTable(null);
+    setCustomerName("");
+    setCustomerPhone("");
+    setTrackedOrder(null);
+    setScreen("portal");
   };
+
+  const handleLogoutGuest = () => performCompleteLogout(true);
 
   return (
     <div className="customer-app-wrapper fade-in">
@@ -1170,9 +1191,18 @@ export const CustomerAppContainer = () => {
             </button>
 
             {feedbackSubmitted ? (
-              <div className="success-banner">
-                <CheckCircle size={24} color="#7EE787" />
-                <span style={{ color: "#7EE787" }}>Thank you! Redirecting...</span>
+              <div className="success-banner" style={{ display: "flex", flexDirection: "column", gap: "12px", textAlign: "center", padding: "16px" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "8px" }}>
+                  <CheckCircle size={24} color="#7EE787" />
+                  <span style={{ color: "#7EE787", fontWeight: 800, fontSize: "16px" }}>Thank You for Your Feedback!</span>
+                </div>
+                <button
+                  className="btn-primary"
+                  style={{ width: "100%", background: "#234A3B", color: "#ffffff", fontWeight: 800, padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer" }}
+                  onClick={() => performCompleteLogout(false)}
+                >
+                  🚪 LOG OUT & COMPLETE SESSION
+                </button>
               </div>
             ) : (
               <button
@@ -1185,7 +1215,6 @@ export const CustomerAppContainer = () => {
                     rating,
                     comment: feedbackComment
                   });
-                  setTimeout(() => setScreen("portal"), 2500);
                 }}
               >
                 Submit Feedback
@@ -1521,9 +1550,14 @@ export const CustomerAppContainer = () => {
             <p style={{ color: "#6B7280", fontSize: "13px", marginBottom: "20px" }}>
               Our team will notify you when Table is ready. Average wait: 15â€“20 min.
             </p>
-            <button className="btn-primary" style={{ width: "100%" }} onClick={() => setScreen("table_confirm")}>
-              Back to Check-In
-            </button>
+            <div style={{ display: "flex", gap: "10px", width: "100%" }}>
+              <button className="btn-secondary" style={{ flex: 1 }} onClick={() => setScreen("table_confirm")}>
+                Back to Check-In
+              </button>
+              <button className="btn-primary" style={{ flex: 1, background: "#10B981" }} onClick={() => setScreen("bill_pay")}>
+                Pay Bill Now →
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -802,7 +802,9 @@ export const createReservation = async ({
       }])
       .select();
     if (error) throw error;
-    await supabase.from("restaurant_tables").update({ status: "reserved" }).eq("id", tableId);
+    try {
+      await supabase.from("restaurant_tables").update({ status: "reserved" }).eq("id", tableId);
+    } catch (e) {}
     logApi("createReservation", data?.[0]);
     return { data: data?.[0] };
   } catch (err) {
@@ -819,7 +821,7 @@ export const fetchReservations = async (dateString) => {
     const endOfDay = new Date(date); endOfDay.setHours(23, 59, 59, 999);
     const { data, error } = await supabase
       .from("reservations")
-      .select("*, restaurant_tables(table_number, capacity)")
+      .select("*, restaurant_tables(table_number)")
       .gte("start_time", startOfDay.toISOString())
       .lte("start_time", endOfDay.toISOString())
       .neq("status", "cancelled")

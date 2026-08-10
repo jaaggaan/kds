@@ -30,18 +30,32 @@ export const KitchenDisplaySystem = () => {
     previousOrderCount.current = activeOrders.length;
   }, [activeOrders]);
 
-  // Active KDS orders
-  const kdsOrders = activeOrders.map((o) => {
+  // Merge activeOrders + paidTransactions for complete KDS History
+  const allKdsSource = [...activeOrders];
+  (paidTransactions || []).forEach(pt => {
+    const ptId = String(pt.id || pt.orderId || pt.preorder_ticket);
+    if (!allKdsSource.some(o => String(o.id) === ptId)) {
+      allKdsSource.push({
+        id: ptId,
+        tableId: pt.tableId || pt.table || "T1",
+        status: "Served",
+        createdAt: pt.createdAt || new Date().toISOString(),
+        items: pt.items || [{ menuItem: { name: "Truffles Meal" }, quantity: 1 }],
+        priority: "normal"
+      });
+    }
+  });
+
+  const kdsOrders = allKdsSource.map((o) => {
     let kdsStatus = "preparing";
     if (o.status === "Ready") kdsStatus = "ready";
-    else if (o.status === "Served" || o.status === "Payment Pending") kdsStatus = "served";
+    else if (o.status === "Served" || o.status === "Completed" || o.status === "Payment Pending") kdsStatus = "served";
     else if (o.status === "New" || o.status === "In Kitchen") kdsStatus = "preparing";
 
-    // Prep time estimate: 12-18 mins based on items
     const prepTarget = 15;
-    const elapsedMins = Math.floor(
-      (Date.now() - new Date(o.createdAt).getTime()) / 60000
-    );
+    const elapsedMins = Math.max(1, Math.floor(
+      (Date.now() - new Date(o.createdAt || Date.now()).getTime()) / 60000
+    ));
 
     return {
       ...o,

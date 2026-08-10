@@ -6,6 +6,11 @@
     <title>TRUFFLES Customer Portal</title>
     <script type="module" crossorigin src="/portal/assets/index-C9ufYf5F.js"></script>
     <link rel="stylesheet" crossorigin href="/portal/assets/index-D3Ps-n7J.css">
+    <style>
+      body, button, input, select, textarea {
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", sans-serif !important;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
@@ -15,45 +20,357 @@
         const SB_URL = "https://juohiqxcfzququtuzxme.supabase.co";
         const SB_KEY = "sb_publishable_GLqjcXd0gGy58SzO01eO0Q_Yu5_Tc-h";
 
+        function getLoggedInCustomer() {
+          let name = "";
+          let phone = "";
+
+          try {
+            const raw = localStorage.getItem("truffles_user_info");
+            if (raw) {
+              const parsed = JSON.parse(raw);
+              if (parsed.fullName) name = parsed.fullName;
+              if (parsed.phoneNumber) phone = parsed.phoneNumber;
+            }
+          } catch (e) {}
+
+          if (!name) {
+            try {
+              const custName = localStorage.getItem("truffles_customer_name");
+              if (custName) name = custName;
+            } catch (e) {}
+          }
+
+          if (!name) {
+            const allEls = Array.from(document.querySelectorAll("h1, h2, div"));
+            const welcomeEl = allEls.find(el => el.children.length === 0 && el.textContent.includes("Welcome,"));
+            if (welcomeEl) {
+              name = welcomeEl.textContent.replace("Welcome,", "").replace("!", "").trim();
+            }
+          }
+
+          return { name: name || "Guest", phone: phone || "" };
+        }
+
+        function findTableContainer() {
+          const allEls = Array.from(document.querySelectorAll("*"));
+          
+          const selTextEl = allEls.find(el => el.children.length === 0 && el.textContent.toUpperCase().includes("SELECT YOUR TABLE"));
+          if (selTextEl) {
+            let p = selTextEl.parentElement;
+            while (p && p !== document.body) {
+              if (p.tagName === "DIV" && p.className && p.className.includes("border")) {
+                return p;
+              }
+              p = p.parentElement;
+            }
+          }
+
+          const voucher = allEls.find(el => el.children.length === 0 && el.textContent.includes("Surprise Welcome Voucher"));
+          if (voucher) {
+            let vBox = voucher.closest("div.w-full");
+            if (vBox && vBox.nextElementSibling) return vBox.nextElementSibling;
+          }
+
+          const btns = Array.from(document.querySelectorAll("button"));
+          const t1 = btns.find(b => b.textContent.toUpperCase().includes("TABLE") && (b.textContent.includes("1") || b.textContent.toUpperCase().includes("SELECTED")));
+          if (t1) {
+            let p = t1.parentElement;
+            while (p && p !== document.body) {
+              if (p.tagName === "DIV" && p.className && p.className.includes("border")) return p;
+              p = p.parentElement;
+            }
+          }
+
+          return null;
+        }
+
         function injectControlBar() {
           if (document.getElementById("portal-control-header")) return;
 
-          // Find the SELECT YOUR TABLE container
-          const allSpans = Array.from(document.querySelectorAll("span"));
-          const tableSpan = allSpans.find(el => el.textContent.includes("SELECT YOUR TABLE NUMBER"));
-          if (!tableSpan) return;
-
-          const tableContainer = tableSpan.closest("div.w-full");
-          if (!tableContainer || !tableContainer.parentNode) return;
+          const targetCard = findTableContainer();
+          if (!targetCard || !targetCard.parentNode) return;
 
           const headerBox = document.createElement("div");
           headerBox.id = "portal-control-header";
-          headerBox.style.cssText = "display: flex; gap: 10px; width: 100%; margin-bottom: 16px;";
+          headerBox.style.cssText = "display: flex; gap: 10px; width: 100%; margin-bottom: 16px; margin-top: 8px;";
           headerBox.innerHTML = `
-            <button id="portal-btn-preorder" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 12px; border-radius: 16px; background: linear-gradient(135deg, #F59E0B, #D97706); color: #ffffff; font-weight: 800; font-size: 13px; border: none; cursor: pointer; box-shadow: 0 4px 14px rgba(245,158,11,0.35); transition: transform 0.15s;">
-              <span>🛒</span> <span>Pre-Order Food</span>
+            <button id="portal-btn-preorder" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 12px; border-radius: 16px; background: #234A3B; color: #ffffff; font-weight: 800; font-size: 13px; border: none; cursor: pointer; box-shadow: 0 4px 14px rgba(35,74,59,0.3); transition: transform 0.15s, background-color 0.15s;">
+              <span style="color: #FFC107;">🛒</span> <span>Pre-Order Food</span>
             </button>
-            <button id="portal-btn-reserve" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 13px 12px; border-radius: 16px; background: linear-gradient(135deg, #6366F1, #4F46E5); color: #ffffff; font-weight: 800; font-size: 13px; border: none; cursor: pointer; box-shadow: 0 4px 14px rgba(99,102,241,0.35); transition: transform 0.15s;">
-              <span>📅</span> <span>Reserve Table</span>
+            <button id="portal-btn-reserve" style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 8px; padding: 14px 12px; border-radius: 16px; background: #234A3B; color: #ffffff; font-weight: 800; font-size: 13px; border: none; cursor: pointer; box-shadow: 0 4px 14px rgba(35,74,59,0.3); transition: transform 0.15s, background-color 0.15s;">
+              <span style="color: #FFC107;">📅</span> <span>Reserve Table</span>
             </button>
           `;
 
-          tableContainer.parentNode.insertBefore(headerBox, tableContainer);
+          targetCard.parentNode.insertBefore(headerBox, targetCard);
 
-          // Handle Pre-Order click
-          document.getElementById("portal-btn-preorder").addEventListener("click", function() {
-            const startBtn = Array.from(document.querySelectorAll("button")).find(b => b.textContent.includes("START ORDERING"));
-            if (startBtn) startBtn.click();
-          });
+          document.getElementById("portal-btn-preorder").onclick = () => openPreOrderModal();
+          document.getElementById("portal-btn-reserve").onclick = () => openReserveModal();
 
-          // Handle Reserve Table click
-          document.getElementById("portal-btn-reserve").addEventListener("click", function() {
-            openReserveModal();
-          });
+          injectLogoutButton();
         }
 
+        function injectLogoutButton() {
+          if (document.getElementById("portal-btn-logout")) return;
+
+          const startBtn = Array.from(document.querySelectorAll("button")).find(b => b.textContent.toUpperCase().includes("START ORDERING"));
+          if (!startBtn || !startBtn.parentNode) return;
+
+          const customer = getLoggedInCustomer();
+
+          const logoutBtn = document.createElement("button");
+          logoutBtn.id = "portal-btn-logout";
+          logoutBtn.style.cssText = "width: 100%; margin-top: 12px; padding: 12px; border-radius: 16px; background: #F5F3EF; border: 1px solid #E5E2D9; color: #5C574E; font-weight: 700; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s;";
+          logoutBtn.innerHTML = `<span>🚪</span> <span>Log Out (${customer.name})</span>`;
+
+          startBtn.parentNode.appendChild(logoutBtn);
+
+          logoutBtn.onclick = function() {
+            try {
+              localStorage.removeItem("truffles_user_info");
+              localStorage.removeItem("truffles_customer_name");
+              localStorage.removeItem("truffles_customer_session");
+            } catch (e) {}
+            window.location.reload();
+          };
+        }
+
+        // ── PRE-ORDER FOOD MODAL ──
+        function getActivePreOrderForCustomer(customer) {
+          try {
+            const raw = localStorage.getItem("truffles_preorders");
+            if (raw) {
+              const list = JSON.parse(raw);
+              const active = list.find(po =>
+                (po.customer_name === customer.name || (customer.phone && po.customer_phone === customer.phone)) &&
+                !po.table_id && po.order_status !== "Completed" && po.order_status !== "Cancelled"
+              );
+              if (active) return active;
+            }
+          } catch (e) {}
+          return null;
+        }
+
+        function openPreOrderModal() {
+          if (document.getElementById("portal-preorder-modal")) return;
+
+          const customer = getLoggedInCustomer();
+          const activePreOrder = getActivePreOrderForCustomer(customer);
+
+          const modal = document.createElement("div");
+          modal.id = "portal-preorder-modal";
+          modal.style.cssText = "position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); display: flex; align-items: flex-end; justify-content: center; z-index: 99999; padding: 0;";
+
+          if (activePreOrder) {
+            modal.innerHTML = `
+              <div style="background: #ffffff; border-top-left-radius: 24px; border-top-right-radius: 24px; padding: 28px 20px 32px; width: 100%; max-width: 480px; text-align: center; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'SF Pro', 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1A1A1A; box-sizing: border-box; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: 0; inset-x: 0; height: 6px; background: #234A3B;"></div>
+                <div style="font-size: 56px; margin-bottom: 8px;">🎟️</div>
+                <h3 style="font-size: 20px; font-weight: 800; color: #234A3B; margin: 0 0 6px;">Active Pre-Order Ticket</h3>
+                <p style="font-size: 13px; color: #8A8475; margin: 0 0 18px;">You already have an active pre-order ticket in queue.</p>
+
+                <div style="padding: 18px; border-radius: 16px; background: #FDF0F2; border: 1px solid #F5D0D6; margin-bottom: 18px; text-align: center;">
+                  <div style="font-size: 11px; font-weight: 800; color: #8A8475; margin-bottom: 4px;">YOUR TICKET NUMBER</div>
+                  <div style="font-size: 32px; font-weight: 900; color: #234A3B; font-family: 'SF Mono', 'SFProText-Regular', Consolas, monospace;">${activePreOrder.preorder_ticket || activePreOrder.id}</div>
+                  <div style="font-size: 12px; color: #8A8475; margin-top: 6px;">Assigned to ${customer.name} · Total: ₹${activePreOrder.total_amount}</div>
+                </div>
+
+                <div style="padding: 12px 14px; border-radius: 12px; background: #FFFBEB; border: 1px solid #FCD34D; color: #92400E; font-size: 12px; font-weight: 700; margin-bottom: 20px; text-align: left; display: flex; align-items: center; gap: 8px;">
+                  <span>⚠️</span>
+                  <span>Multiple active pre-orders are restricted. Your order will automatically transition when staff assigns your table.</span>
+                </div>
+
+                <button id="close-active-po-btn" style="width: 100%; padding: 14px; border-radius: 16px; border: none; background: #234A3B; color: #ffffff; font-size: 14px; font-weight: 800; cursor: pointer; shadow: 0 4px 14px rgba(35,74,59,0.3);">
+                  Close
+                </button>
+              </div>
+            `;
+            document.body.appendChild(modal);
+            document.getElementById("close-active-po-btn").onclick = () => modal.remove();
+            return;
+          }
+
+          const menuItems = [
+            { id: "m1", name: "Truffles Special Sizzler", price: 380, desc: "Grilled cottage cheese/chicken with herb butter rice & veggies" },
+            { id: "m2", name: "Ferrero Rocher Thick Shake", price: 240, desc: "Rich chocolate hazelnut thick shake topped with crunch" },
+            { id: "m3", name: "Fiery Chicken Burger", price: 290, desc: "Crispy spicy fillet, jalapenos, cheese slice & secret sauce" },
+            { id: "m4", name: "Creamy Alfredo Pasta", price: 320, desc: "Penne in rich parmesan cream sauce with garlic bread" },
+            { id: "m5", name: "Loaded Cheese Fries", price: 190, desc: "Crispy fries smothered in warm melted cheddar cheese" }
+          ];
+
+          let cart = [];
+
+          function renderPreOrderView(contentHtml) {
+            modal.innerHTML = `
+              <div style="background: #ffffff; border-top-left-radius: 24px; border-top-right-radius: 24px; padding: 24px 20px 32px; width: 100%; max-width: 480px; max-height: 92vh; overflow-y: auto; text-align: left; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'SF Pro', 'Helvetica Neue', Helvetica, Arial, sans-serif; color: #1A1A1A; box-sizing: border-box; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: 0; inset-x: 0; height: 6px; background: #234A3B;"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; border-bottom: 1px solid #E5E2D9; padding-bottom: 12px; margin-top: 4px;">
+                  <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #1A1A1A; display: flex; align-items: center; gap: 8px;">
+                    <span style="color: #FFC107;">🛒</span> Pre-Order Food
+                  </h3>
+                  <button id="close-po-modal" style="width: 32px; height: 32px; border-radius: 50%; background: #F5F3EF; color: #8A8475; border: none; font-weight: 800; cursor: pointer;">✕</button>
+                </div>
+                ${contentHtml}
+              </div>
+            `;
+            document.getElementById("close-po-modal").onclick = () => modal.remove();
+          }
+
+          function getPreOrderFormHtml() {
+            const itemsHtml = menuItems.map(item => {
+              const inCart = cart.find(c => c.id === item.id);
+              return `
+                <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border: 1px solid #E5E2D9; background: #F5F3EF; border-radius: 16px; margin-bottom: 10px;">
+                  <div>
+                    <div style="font-size: 14px; font-weight: 800; color: #1A1A1A;">${item.name}</div>
+                    <div style="font-size: 11px; color: #8A8475; margin-top: 2px;">${item.desc}</div>
+                    <div style="font-size: 13px; font-weight: 800; color: #234A3B; margin-top: 4px;">₹${item.price}</div>
+                  </div>
+                  ${inCart ? `
+                    <div style="display: flex; align-items: center; gap: 8px; background: #ffffff; padding: 4px 10px; border-radius: 12px; border: 1px solid #E5E2D9;">
+                      <button type="button" class="po-minus" data-id="${item.id}" style="background: none; border: none; color: #234A3B; font-weight: 900; cursor: pointer; font-size: 16px;">-</button>
+                      <span style="font-size: 13px; font-weight: 800; color: #1A1A1A;">${inCart.qty}</span>
+                      <button type="button" class="po-plus" data-id="${item.id}" style="background: none; border: none; color: #234A3B; font-weight: 900; cursor: pointer; font-size: 16px;">+</button>
+                    </div>
+                  ` : `
+                    <button type="button" class="po-add" data-id="${item.id}" style="padding: 8px 16px; border-radius: 12px; background: #234A3B; color: #ffffff; border: none; font-weight: 800; font-size: 12px; cursor: pointer; shadow: 0 2px 6px rgba(35,74,59,0.2);">
+                      + Add
+                    </button>
+                  `}
+                </div>
+              `;
+            }).join("");
+
+            const total = cart.reduce((s, i) => s + i.price * i.qty, 0);
+
+            return `
+              <div>
+                <!-- Logged-in Customer Badge -->
+                <div style="padding: 10px 14px; border-radius: 14px; background: #FDF0F2; border: 1px solid #F5D0D6; margin-bottom: 16px; display: flex; align-items: center; gap: 8px;">
+                  <span style="font-size: 14px;">👤</span>
+                  <span style="font-size: 12px; font-weight: 800; color: #234A3B;">Pre-ordering as: ${customer.name}${customer.phone ? ' (' + customer.phone + ')' : ''}</span>
+                </div>
+
+                <div style="margin-bottom: 16px;">
+                  <label style="display: block; font-size: 11px; font-weight: 900; text-transform: uppercase; color: #234A3B; margin-bottom: 8px; tracking-wider: 1px;">Select Items</label>
+                  <div>${itemsHtml}</div>
+                </div>
+
+                <button type="button" id="po-submit-btn" style="width: 100%; padding: 14px; border-radius: 16px; border: none; background: ${cart.length > 0 ? '#234A3B' : '#E5E2D9'}; color: ${cart.length > 0 ? '#ffffff' : '#8A8475'}; font-size: 14px; font-weight: 800; cursor: ${cart.length > 0 ? 'pointer' : 'not-allowed'}; margin-top: 8px; shadow: ${cart.length > 0 ? '0 4px 14px rgba(35,74,59,0.3)' : 'none'};">
+                  ${cart.length > 0 ? `Place Pre-Order for ${customer.name} (₹${total}) →` : 'Add Items to Pre-Order'}
+                </button>
+              </div>
+            `;
+          }
+
+          function attachPreOrderEvents() {
+            document.querySelectorAll(".po-add").forEach(b => {
+              b.onclick = () => {
+                const item = menuItems.find(i => i.id === b.dataset.id);
+                if (item) cart.push({ ...item, qty: 1 });
+                updatePreOrderView();
+              };
+            });
+            document.querySelectorAll(".po-plus").forEach(b => {
+              b.onclick = () => {
+                const entry = cart.find(c => c.id === b.dataset.id);
+                if (entry) entry.qty++;
+                updatePreOrderView();
+              };
+            });
+            document.querySelectorAll(".po-minus").forEach(b => {
+              b.onclick = () => {
+                const idx = cart.findIndex(c => c.id === b.dataset.id);
+                if (idx !== -1) {
+                  if (cart[idx].qty > 1) cart[idx].qty--;
+                  else cart.splice(idx, 1);
+                }
+                updatePreOrderView();
+              };
+            });
+
+            const submitBtn = document.getElementById("po-submit-btn");
+            if (submitBtn && cart.length > 0) {
+              submitBtn.onclick = async () => {
+                submitBtn.textContent = "Placing Pre-Order...";
+                submitBtn.disabled = true;
+
+                const ticket = "PRE-" + Math.floor(1000 + Math.random() * 9000);
+                const totalAmt = cart.reduce((s, i) => s + i.price * i.qty, 0);
+
+                const newPreOrderObj = {
+                  id: "po-" + Date.now(),
+                  customer_name: customer.name,
+                  customer_phone: customer.phone,
+                  table_id: null,
+                  items: cart.map(c => ({ id: c.id, name: c.name, price: c.price, qty: c.qty })),
+                  total_amount: totalAmt,
+                  order_status: "New",
+                  payment_status: "Unpaid",
+                  is_preorder: true,
+                  preorder_ticket: ticket,
+                  created_at: new Date().toISOString()
+                };
+
+                // 1. Save to localStorage for instant local sync
+                try {
+                  const existingRaw = localStorage.getItem("truffles_preorders");
+                  const existing = existingRaw ? JSON.parse(existingRaw) : [];
+                  existing.unshift(newPreOrderObj);
+                  localStorage.setItem("truffles_preorders", JSON.stringify(existing));
+                  localStorage.setItem("truffles_last_event", JSON.stringify({
+                    type: "NEW_PREORDER",
+                    ticket: ticket,
+                    timestamp: Date.now()
+                  }));
+                } catch (e) {}
+
+                // 2. Send to Supabase DB
+                try {
+                  const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY, "Content-Type": "application/json" };
+                  await fetch(SB_URL + "/rest/v1/orders", {
+                    method: "POST",
+                    headers,
+                    body: JSON.stringify(newPreOrderObj)
+                  });
+                } catch (e) {}
+
+                renderPreOrderView(`
+                  <div style="text-align: center; padding: 24px 0;">
+                    <div style="font-size: 56px; margin-bottom: 8px;">🎟️</div>
+                    <h3 style="font-size: 22px; font-weight: 800; color: #234A3B; margin: 0 0 8px;">Pre-Order Placed for ${customer.name}!</h3>
+                    <p style="font-size: 13px; color: #8A8475; margin: 0 0 20px;">Your food choices are queued in our system.</p>
+
+                    <div style="padding: 20px; border-radius: 16px; background: #FDF0F2; border: 1px solid #F5D0D6; margin-bottom: 24px;">
+                      <div style="font-size: 11px; font-weight: 800; color: #8A8475; margin-bottom: 4px;">YOUR TICKET NUMBER</div>
+                      <div style="font-size: 32px; font-weight: 900; color: #234A3B; font-family: monospace;">${ticket}</div>
+                      <div style="font-size: 12px; color: #8A8475; margin-top: 6px;">Assigned to ${customer.name} · Reflected in Staff Pre-Order Queue</div>
+                    </div>
+
+                    <button id="po-done-btn" style="width: 100%; padding: 14px; border-radius: 16px; border: none; background: #234A3B; color: #ffffff; font-size: 14px; font-weight: 800; cursor: pointer; shadow: 0 4px 14px rgba(35,74,59,0.3);">
+                      Done
+                    </button>
+                  </div>
+                `);
+                document.getElementById("po-done-btn").onclick = () => modal.remove();
+              };
+            }
+          }
+
+          function updatePreOrderView() {
+            renderPreOrderView(getPreOrderFormHtml());
+            attachPreOrderEvents();
+          }
+
+          document.body.appendChild(modal);
+          updatePreOrderView();
+        }
+
+        // ── RESERVE TABLE MODAL ──
         function openReserveModal() {
           if (document.getElementById("portal-reserve-modal")) return;
+
+          const customer = getLoggedInCustomer();
 
           const modal = document.createElement("div");
           modal.id = "portal-reserve-modal";
@@ -66,13 +383,20 @@
 
           function renderModalContent(contentHtml) {
             modal.innerHTML = `
-              <div style="background: #ffffff; border-top-left-radius: 24px; border-top-right-radius: 24px; padding: 24px 20px 32px; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; text-align: left; font-family: system-ui, -apple-system, sans-serif;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #F0EEE6; padding-bottom: 12px;">
+              <div style="background: #ffffff; border-top-left-radius: 24px; border-top-right-radius: 24px; padding: 24px 20px 32px; width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto; text-align: left; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'SF Pro', 'Helvetica Neue', Helvetica, Arial, sans-serif; box-sizing: border-box; position: relative; overflow: hidden;">
+                <div style="position: absolute; top: 0; inset-x: 0; height: 6px; background: #234A3B;"></div>
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid #E5E2D9; padding-bottom: 12px; margin-top: 4px;">
                   <h3 style="margin: 0; font-size: 18px; font-weight: 800; color: #1A1A1A; display: flex; align-items: center; gap: 8px;">
-                    <span>📅</span> Reserve a Table
+                    <span style="color: #FFC107;">📅</span> Reserve a Table
                   </h3>
                   <button id="close-res-modal" style="width: 32px; height: 32px; border-radius: 50%; background: #F5F3EF; color: #8A8475; border: none; font-weight: 800; cursor: pointer;">✕</button>
                 </div>
+
+                <!-- Customer Badge -->
+                <div style="padding: 10px 14px; border-radius: 14px; background: #F5F3EF; border: 1px solid #E5E2D9; margin-bottom: 16px; font-size: 12px; font-weight: 800; color: #234A3B;">
+                  Reserving for: ${customer.name}${customer.phone ? ' (' + customer.phone + ')' : ''}
+                </div>
+
                 ${contentHtml}
               </div>
             `;
@@ -85,7 +409,7 @@
             `).join("");
 
             const tablesHtml = Array.from({length: 20}, (_, i) => i + 1).map(tNum => `
-              <button type="button" class="t-btn" data-[#]="tNum" data-tnum="${tNum}" style="padding: 10px 4px; border-radius: 12px; border: 2px solid ${selectedTableNum === tNum ? '#234A3B' : '#E5E2D9'}; background: ${selectedTableNum === tNum ? '#234A3B' : '#ffffff'}; color: ${selectedTableNum === tNum ? '#ffffff' : '#2D2D2D'}; font-size: 13px; font-weight: 800; cursor: pointer;">
+              <button type="button" class="t-btn" data-tnum="${tNum}" style="padding: 10px 4px; border-radius: 12px; border: 2px solid ${selectedTableNum === tNum ? '#234A3B' : '#E5E2D9'}; background: ${selectedTableNum === tNum ? '#234A3B' : '#ffffff'}; color: ${selectedTableNum === tNum ? '#ffffff' : '#2D2D2D'}; font-size: 13px; font-weight: 800; cursor: pointer;">
                 <span style="font-size: 9px; display: block; opacity: 0.7;">TABLE</span> ${tNum}
               </button>
             `).join("");
@@ -150,8 +474,8 @@
                     method: "POST",
                     headers,
                     body: JSON.stringify({
-                      customer_name: "Guest",
-                      customer_phone: "",
+                      customer_name: customer.name,
+                      customer_phone: customer.phone,
                       start_time: new Date(`${selectedDate}T${selectedTime}:00`).toISOString(),
                       end_time: new Date(new Date(`${selectedDate}T${selectedTime}:00`).getTime() + 90 * 60 * 1000).toISOString(),
                       guest_count: guestCount,
@@ -169,7 +493,7 @@
                 renderModalContent(`
                   <div style="text-align: center; padding: 24px 0;">
                     <div style="font-size: 48px; margin-bottom: 12px;">🎉</div>
-                    <h4 style="font-size: 20px; font-weight: 800; color: #234A3B; margin: 0 0 8px;">Table Reserved!</h4>
+                    <h4 style="font-size: 20px; font-weight: 800; color: #234A3B; margin: 0 0 8px;">Table Reserved for ${customer.name}!</h4>
                     <p style="font-size: 13px; color: #8A8475; margin: 0 0 20px;">
                       Table <strong>${selectedTableNum}</strong> for <strong>${guestCount} guests</strong><br />
                       on ${selectedDate} at ${selectedTime}.
@@ -193,10 +517,50 @@
           updateView();
         }
 
-        const observer = new MutationObserver(() => injectControlBar());
+        function transformDoneToLogout() {
+          const allBtns = Array.from(document.querySelectorAll("button"));
+          allBtns.forEach(btn => {
+            const txt = btn.textContent.toUpperCase().trim();
+            const matchesLogout = txt === "DONE" || txt === "✨ DONE" || txt.includes("DONE") || txt.includes("LOG OUT & COMPLETE SESSION") || txt.includes("LOG OUT");
+            if (matchesLogout) {
+              if (!btn.dataset.logoutAttached) {
+                btn.dataset.logoutAttached = "true";
+                btn.innerHTML = `<span>🚪</span> <span>LOG OUT & COMPLETE SESSION</span>`;
+                btn.style.background = "#234A3B";
+                btn.style.color = "#ffffff";
+                btn.style.fontWeight = "800";
+                btn.onclick = function(e) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  try {
+                    localStorage.removeItem("truffles_user_info");
+                    localStorage.removeItem("truffles_customer_name");
+                    localStorage.removeItem("truffles_customer_session");
+                    localStorage.removeItem("truffles_guest_table");
+                    localStorage.removeItem("truffles_active_table");
+                    localStorage.removeItem("truffles_selected_table");
+                    localStorage.removeItem("truffles_cart");
+                  } catch (err) {}
+
+                  // Clear search params or hash to return cleanly to welcome portal check-in
+                  window.location.href = window.location.origin + window.location.pathname;
+                };
+              }
+            }
+          });
+        }
+
+        const observer = new MutationObserver(() => {
+          injectControlBar();
+          transformDoneToLogout();
+        });
         observer.observe(document.body, { childList: true, subtree: true });
-        setInterval(injectControlBar, 1000);
+        setInterval(() => {
+          injectControlBar();
+          transformDoneToLogout();
+        }, 300);
         injectControlBar();
+        transformDoneToLogout();
       })();
     </script>
   </body>

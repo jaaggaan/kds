@@ -1,34 +1,8 @@
 {
-  "rewrites": [
-    {
-      "source": "/portal/(.*)",
-      "destination": "/portal/$1"
-    },
-    {
-      "source": "/kds/(.*)",
-      "destination": "/kds/$1"
-    },
-    {
-      "source": "/kitchen/(.*)",
-      "destination": "/kitchen/$1"
-    },
-    {
-      "source": "/((?!portal|kds|kitchen|assets|favicon|icons).*)",
-      "destination": "/index.html"
-    }
-  ],
-  "headers": [
-    {
-      "source": "/portal/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-cache" }
-      ]
-    },
-    {
-      "source": "/kds/(.*)",
-      "headers": [
-        { "key": "Cache-Control", "value": "no-cache" }
-      ]
-    }
+  "cleanUrls": false,
+  "routes": [
+    { "src": "/portal/(.*)", "dest": "/portal/$1" },
+    { "src": "/kds/(.*)", "dest": "/kds/$1" },
+    { "src": "/(.*)", "dest": "/$1" }
   ]
 }

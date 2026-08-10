@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useResto } from "../../context/RestoContext";
 import {
   X,
@@ -25,6 +25,13 @@ export const TableDetailModal = ({ table, onClose, onOpenNewOrder }) => {
   } = useResto();
 
   const [selectedStatus, setSelectedStatus] = useState(table.status);
+
+  // Sync state if table prop changes
+  useEffect(() => {
+    setSelectedStatus(table.status);
+  }, [table.status]);
+
+  const currentStatus = selectedStatus || table.status;
 
   // Extract table number for universal matching (T1 to T20)
   const tableNum = table.number;
@@ -81,8 +88,17 @@ export const TableDetailModal = ({ table, onClose, onOpenNewOrder }) => {
         <div className="modal-header" style={{ borderBottom: "1px solid var(--border)" }}>
           <div className="modal-title-group">
             <h2>Table {tableNum} (T{tableNum}) Customer & Order</h2>
-            <span className={`table-status-tag tag-${table.status}`}>
-              {table.status.replace("_", " ").toUpperCase()}
+            <span
+              className={`table-status-tag tag-${currentStatus}`}
+              style={
+                currentStatus === "reserved"
+                  ? { backgroundColor: "rgba(139, 92, 246, 0.15)", color: "#8B5CF6", fontWeight: 700 }
+                  : currentStatus === "occupied"
+                  ? { backgroundColor: "rgba(239, 68, 68, 0.15)", color: "#EF4444", fontWeight: 700 }
+                  : {}
+              }
+            >
+              {currentStatus.replace("_", " ").toUpperCase()}
             </span>
           </div>
           <button className="icon-btn-close" onClick={onClose}>
@@ -134,7 +150,7 @@ export const TableDetailModal = ({ table, onClose, onOpenNewOrder }) => {
               {statusOptions.map((opt) => (
                 <button
                   key={opt.value}
-                  className={`status-opt-btn ${table.status === opt.value ? "selected" : ""}`}
+                  className={`status-opt-btn ${currentStatus === opt.value ? "selected" : ""}`}
                   onClick={() => handleStatusChange(opt.value)}
                   style={{ padding: "6px 8px", fontSize: "11px" }}
                 >
