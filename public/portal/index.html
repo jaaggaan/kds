@@ -182,8 +182,14 @@
               localStorage.removeItem("truffles_user_info");
               localStorage.removeItem("truffles_customer_name");
               localStorage.removeItem("truffles_customer_session");
+              localStorage.removeItem("truffles_guest_table");
+              localStorage.removeItem("truffles_active_table");
+              localStorage.removeItem("truffles_selected_table");
+              localStorage.removeItem("truffles_cart");
+              sessionStorage.clear();
             } catch (e) {}
-            window.location.reload();
+            // Redirect cleanly without query params (?table=8) to render Image 3 Captive Portal Check-in
+            window.location.href = window.location.origin + window.location.pathname;
           };
         }
 

@@ -416,41 +416,14 @@ export const CustomerAppContainer = () => {
     const activeTableIdOrNum = selectedTable || localStorage.getItem("truffles_active_table") || localStorage.getItem("truffles_guest_table");
 
     if (activeTableIdOrNum) {
-      const targetTable = resolveTable(activeTableIdOrNum, tables);
-      const targetTableId = targetTable ? targetTable.id : (isUUID(activeTableIdOrNum) ? activeTableIdOrNum : null);
-
       try {
-        if (targetTableId) {
-          await supabase
-            .from("orders")
-            .update({ order_status: "Cancelled" })
-            .eq("table_id", targetTableId)
-            .neq("payment_status", "Paid")
-            .in("order_status", ["New", "Preparing", "Ready"]);
-        } else if (targetTable?.number) {
-          const { data: tableRow } = await supabase
-            .from("restaurant_tables")
-            .select("id")
-            .eq("table_number", targetTable.number)
-            .maybeSingle();
-
-          if (tableRow?.id) {
-            await supabase
-              .from("orders")
-              .update({ order_status: "Cancelled" })
-              .eq("table_id", tableRow.id)
-              .neq("payment_status", "Paid")
-              .in("order_status", ["New", "Preparing", "Ready"]);
-          }
-        }
+        await updateTableStatus(activeTableIdOrNum, "needs_cleaning");
       } catch (err) {
-        console.error("Failed to cancel active orders on logout:", err);
+        console.error("Failed to update table status on logout:", err);
       }
-
-      await updateTableStatus(activeTableIdOrNum, "needs_cleaning");
     }
 
-    // Clear all client session local storage keys
+    // Clear all client session local storage & session storage keys
     try {
       localStorage.removeItem("truffles_guest_table");
       localStorage.removeItem("truffles_customer_session");
@@ -459,6 +432,7 @@ export const CustomerAppContainer = () => {
       localStorage.removeItem("truffles_user_info");
       localStorage.removeItem("truffles_selected_table");
       localStorage.removeItem("truffles_cart");
+      sessionStorage.clear();
     } catch (e) {}
 
     setCart([]);
@@ -468,6 +442,15 @@ export const CustomerAppContainer = () => {
     setCustomerPhone("");
     setTrackedOrder(null);
     setScreen("portal");
+
+    // Cleanly strip URL query parameters (e.g. ?table=8) so browser returns to Image 3 Check-in screen
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, "", window.location.origin + window.location.pathname);
+    }
+
+    if (shouldRedirect) {
+      window.location.href = window.location.origin + window.location.pathname;
+    }
   };
 
   const handleLogoutGuest = () => performCompleteLogout(true);
