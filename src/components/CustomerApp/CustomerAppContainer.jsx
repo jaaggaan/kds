@@ -1182,9 +1182,9 @@ export const CustomerAppContainer = () => {
                 <button
                   className="btn-primary"
                   style={{ width: "100%", background: "#234A3B", color: "#ffffff", fontWeight: 800, padding: "14px", borderRadius: "14px", border: "none", cursor: "pointer" }}
-                  onClick={() => performCompleteLogout(false)}
+                  onClick={() => performCompleteLogout(true)}
                 >
-                  🚪 LOG OUT & COMPLETE SESSION
+                  ✨ Exit Feedback Page
                 </button>
               </div>
             ) : (
