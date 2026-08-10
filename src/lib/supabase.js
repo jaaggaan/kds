@@ -465,14 +465,47 @@ export const executeDirectTablePayment = async (tableIdOrNum) => {
 // ── ORDERS & ORDER ITEMS API ──
 export const fetchOrders = async () => {
   try {
+    // 1. Try join query first
     const { data: ordersData, error: ordersErr } = await supabase
       .from("orders")
       .select("*, order_items(*, menu_items(*)), restaurant_tables(*)")
       .order("created_at", { ascending: false });
 
-    if (ordersErr) throw ordersErr;
-    logApi("fetchOrders", { count: ordersData?.length });
-    return ordersData || [];
+    if (!ordersErr && Array.isArray(ordersData)) {
+      logApi("fetchOrders", { count: ordersData.length });
+      return ordersData;
+    }
+
+    console.warn("[fetchOrders Join Warning] Relational query error. Executing safe separate table fetch fallback:", ordersErr);
+
+    // 2. Fallback: Fetch tables separately to bypass schema relationship issues
+    const { data: rawOrders } = await supabase.from("orders").select("*").order("created_at", { ascending: false });
+    const { data: rawItems } = await supabase.from("order_items").select("*");
+    const { data: rawMenuItems } = await supabase.from("menu_items").select("*");
+    const { data: rawTables } = await supabase.from("restaurant_tables").select("*");
+
+    if (!Array.isArray(rawOrders)) return [];
+
+    const mergedOrders = rawOrders.map(ord => {
+      const ordItems = (rawItems || []).filter(i => String(i.order_id) === String(ord.id)).map(i => {
+        const menuItem = (rawMenuItems || []).find(m => String(m.id) === String(i.menu_item_id));
+        return {
+          ...i,
+          menu_items: menuItem || { item_name: i.notes || "Delicious Item", name: i.notes || "Delicious Item" }
+        };
+      });
+
+      const matchedTable = (rawTables || []).find(t => String(t.id) === String(ord.table_id) || t.table_number === parseInt(String(ord.table_id || "").replace(/\D/g, ""), 10));
+
+      return {
+        ...ord,
+        order_items: ordItems,
+        restaurant_tables: matchedTable || null
+      };
+    });
+
+    logApi("fetchOrdersFallback", { count: mergedOrders.length });
+    return mergedOrders;
   } catch (err) {
     logApi("fetchOrders", null, err);
     return [];

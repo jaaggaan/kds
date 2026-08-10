@@ -336,9 +336,37 @@
     async function fetchSupabaseOrdersKDS() {
       try {
         const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY };
-        const res = await fetch(SB_URL + "/rest/v1/orders?select=*,order_items(*,menu_items(*)),restaurant_tables(*)&order=created_at.desc", { headers });
-        if (!res.ok) return;
-        const data = await res.json();
+        
+        let data = null;
+        try {
+          const res = await fetch(SB_URL + "/rest/v1/orders?select=*,order_items(*,menu_items(*)),restaurant_tables(*)&order=created_at.desc", { headers });
+          if (res.ok) data = await res.json();
+        } catch (e) {}
+
+        // Fallback: If join query failed due to schema cache issue, fetch tables separately and merge in JS
+        if (!Array.isArray(data)) {
+          const resOrd = await fetch(SB_URL + "/rest/v1/orders?select=*&order=created_at.desc", { headers });
+          if (resOrd.ok) {
+            const rawOrders = await resOrd.json();
+            if (Array.isArray(rawOrders)) {
+              let rawItems = [];
+              let rawTables = [];
+              try {
+                const resItm = await fetch(SB_URL + "/rest/v1/order_items?select=*", { headers });
+                if (resItm.ok) rawItems = await resItm.json();
+                const resTbl = await fetch(SB_URL + "/rest/v1/restaurant_tables?select=*", { headers });
+                if (resTbl.ok) rawTables = await resTbl.json();
+              } catch (e) {}
+
+              data = rawOrders.map(ord => ({
+                ...ord,
+                order_items: (rawItems || []).filter(i => String(i.order_id) === String(ord.id)),
+                restaurant_tables: (rawTables || []).find(t => String(t.id) === String(ord.table_id) || t.table_number === parseInt(String(ord.table_id || "").replace(/\D/g, ""), 10)) || null
+              }));
+            }
+          }
+        }
+
         if (!Array.isArray(data)) return;
 
         data.forEach(item => {
