@@ -503,24 +503,25 @@ export const createOrderInDb = async ({
         num = parseInt(clean, 10);
       }
 
-      if (!isNaN(num)) {
-        tableNumberFound = num;
-        const { data: tableData } = await supabase
+      if (isNaN(num) || num <= 0) num = 1; // Default to Table 1 if unspecified
+
+      tableNumberFound = num;
+      const { data: tableData } = await supabase
+        .from("restaurant_tables")
+        .select("id, table_number")
+        .eq("table_number", num)
+        .maybeSingle();
+
+      if (tableData?.id) {
+        dbTableUuid = tableData.id;
+      } else {
+        // Auto-insert table into restaurant_tables if missing
+        const { data: newTable } = await supabase
           .from("restaurant_tables")
-          .select("id, table_number")
-          .eq("table_number", num)
+          .insert([{ table_number: num, status: "occupied" }])
+          .select()
           .maybeSingle();
-        if (tableData?.id) {
-          dbTableUuid = tableData.id;
-        } else {
-          // Auto-insert table into restaurant_tables if missing
-          const { data: newTable } = await supabase
-            .from("restaurant_tables")
-            .insert([{ table_number: num, status: "occupied" }])
-            .select()
-            .maybeSingle();
-          if (newTable?.id) dbTableUuid = newTable.id;
-        }
+        if (newTable?.id) dbTableUuid = newTable.id;
       }
     } else {
       const { data: tableData } = await supabase

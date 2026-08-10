@@ -383,19 +383,29 @@
                   }));
                 } catch (e) {}
 
-                // 2. Resolve table UUID if seated
+                // 2. Resolve table UUID (defaults to Table 1 if not in URL)
                 let tableUuid = null;
-                const tblNum = getURLTableNumber();
-                if (tblNum) {
-                  try {
-                    const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY };
-                    const resTbl = await fetch(SB_URL + `/rest/v1/restaurant_tables?table_number=eq.${tblNum}`, { headers });
-                    if (resTbl.ok) {
-                      const tblData = await resTbl.json();
-                      if (tblData && tblData[0]) tableUuid = tblData[0].id;
+                const tblNum = getURLTableNumber() || 1;
+                try {
+                  const headers = { "apikey": SB_KEY, "Authorization": "Bearer " + SB_KEY };
+                  const resTbl = await fetch(SB_URL + `/rest/v1/restaurant_tables?table_number=eq.${tblNum}`, { headers });
+                  if (resTbl.ok) {
+                    const tblData = await resTbl.json();
+                    if (tblData && tblData[0]) {
+                      tableUuid = tblData[0].id;
+                    } else {
+                      const postTbl = await fetch(SB_URL + `/rest/v1/restaurant_tables`, {
+                        method: "POST",
+                        headers: { ...headers, "Content-Type": "application/json", "Prefer": "return=representation" },
+                        body: JSON.stringify({ table_number: tblNum, status: "occupied" })
+                      });
+                      if (postTbl.ok) {
+                        const createdTbl = await postTbl.json();
+                        if (createdTbl && createdTbl[0]) tableUuid = createdTbl[0].id;
+                      }
                     }
-                  } catch (e) {}
-                }
+                  }
+                } catch (e) {}
 
                 const dbOrderPayload = {
                   table_id: tableUuid,
